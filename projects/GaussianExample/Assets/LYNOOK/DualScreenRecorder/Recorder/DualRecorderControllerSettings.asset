@@ -1,0 +1,27 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a0888db1d9f84d6da3b0d5de41f42c2d, type: 3}
+  m_Name: DualRecorderControllerSettings
+  m_EditorClassIdentifier: Unity.Recorder.Editor::UnityEditor.Recorder.RecorderControllerSettings
+  m_RecordMode: 2
+  m_FrameRatePlayback: 0
+  m_FrameRateType: 8
+  m_CustomFrameRateValue: 30
+  m_StartFrame: 0
+  m_EndFrame: 299
+  m_StartTime: 0
+  m_EndTime: 0
+  m_CapFrameRate: 1
+  m_ExitPlayMode: 1
+  m_RecorderSettings:
+  - {fileID: 11400000, guid: c20aa8580760545a8b77ee57b2870dbe, type: 2}
+  - {fileID: 11400000, guid: bfcbb1d1141f6465f82ba75e686765c7, type: 2}

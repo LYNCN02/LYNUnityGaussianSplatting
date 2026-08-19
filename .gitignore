@@ -25,3 +25,7 @@
 /projects/**/UserSettings/*
 /projects/**/obj/*
 *.sln.DotSettings.user
+*.mp4
+*.mov
+*.glb
+*.spz

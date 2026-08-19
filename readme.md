@@ -21,9 +21,33 @@ it might work or it might not.
 - Mobile may or might not work. Some iOS devices definitely do not work ([#72](https://github.com/aras-p/UnityGaussianSplatting/issues/72)),
   some Androids do not work either ([#112](https://github.com/aras-p/UnityGaussianSplatting/issues/112))
 
+## LYNOOK Fork Changes / LYNOOK 修改
+
+This fork keeps the upstream Gaussian Splatting implementation and adds the following LYNOOK-specific changes.
+
+### Orthographic camera rendering
+
+- `package/Shaders/GaussianSplatting.hlsl` now supports orthographic projection in `CalcCovariance2D`.
+- The shader detects an orthographic projection matrix and uses a depth-independent projection Jacobian, so splat size and covariance remain correct at different camera depths.
+- Perspective cameras continue to use the original perspective projection and frustum-edge stabilization path.
+- This change is based on upstream [pull request #227, commit `48f9548`](https://github.com/aras-p/UnityGaussianSplatting/pull/227/changes/48f9548b9a0cc7f914d5279d347198ca42427648).
+
+No additional component or renderer setting is required. Set the Unity Camera **Projection** mode to **Orthographic**, and the Gaussian Splat renderer selects the correct shader path automatically.
+
+### `GaussianExample` project updates
+
+- Upgraded the example project from Unity `2022.3.47f1` to Unity `6000.3.16f1`.
+- Updated `GSTestScene` with a `CameraRig` containing the main camera and a `SideCamera`. The side camera uses the `SideC` tag and targets Display 2.
+- Added `CameraRigTransformCopy` and its custom Inspector. Select `CameraRig` and click **复制 Transform JSON** to copy the rig, main-camera, and side-camera transforms as JSON.
+- Updated the sample camera, Gaussian Splat asset reference, renderer settings, and scene transforms for the LYNOOK test setup.
+- Added the UniVRM/UniGLTF `v0.131.0`, Unity Recorder, Multiplayer Center, Vector Graphics, Accessibility, and Adaptive Performance package dependencies used by the example project.
+- Re-serialized the scene and project settings for Unity 6, including the `SideC` tag and current rendering/project configuration.
+
+Large LYNOOK test assets and recordings are not stored in Git. Files such as `*.spz`, `*.glb`, `*.mp4`, and `*.mov` must be supplied locally when required by the example scene.
+
 ## Usage
 
-Download or clone this repository, open `projects/GaussianExample` as a Unity project (I use Unity 2022.3, other versions might also work),
+Download or clone this repository, open `projects/GaussianExample` as a Unity project using Unity `6000.3.16f1`,
 and open `GSTestScene` scene in there.
 
 Note that the project requires DX12 or Vulkan on Windows, i.e. **DX11 will not work**. This is **not tested at all on mobile/web**, and probably

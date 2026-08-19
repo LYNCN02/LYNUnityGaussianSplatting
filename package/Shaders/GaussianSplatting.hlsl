@@ -57,23 +57,38 @@ float3 CalcCovariance2D(float3 worldPos, float3 cov3d0, float3 cov3d1, float4x4 
 {
     float4x4 viewMatrix = matrixV;
     float3 viewPos = mul(viewMatrix, float4(worldPos, 1)).xyz;
+    bool isOrtho = abs(matrixP._m33 - 1.0) < 1e-5;
+    float focalX = screenParams.x * abs(matrixP._m00) / 2;
+    float focalY = screenParams.y * abs(matrixP._m11) / 2;
 
-    // this is needed in order for splats that are visible in view but clipped "quite a lot" to work
-    float aspect = matrixP._m00 / matrixP._m11;
-    float tanFovX = rcp(matrixP._m00);
-    float tanFovY = rcp(matrixP._m11 * aspect);
-    float limX = 1.3 * tanFovX;
-    float limY = 1.3 * tanFovY;
-    viewPos.x = clamp(viewPos.x / viewPos.z, -limX, limX) * viewPos.z;
-    viewPos.y = clamp(viewPos.y / viewPos.z, -limY, limY) * viewPos.z;
+    float3x3 J;
+    if (isOrtho)
+    {
+        // Orthographic projection has no perspective divide, so projected size is depth independent.
+        J = float3x3(
+            focalX, 0, 0,
+            0, focalY, 0,
+            0, 0, 0
+        );
+    }
+    else
+    {
+        // Keep splats stable near frustum edges where projection derivatives become extreme.
+        // m02/m12 carry the lens shift of an asymmetric frustum. They do not
+        // change the local projection derivative, but they do change the largest
+        // visible x/z and y/z values that this stability clamp must preserve.
+        float limX = 1.3 * (1 + abs(matrixP._m02)) / abs(matrixP._m00);
+        float limY = 1.3 * (1 + abs(matrixP._m12)) / abs(matrixP._m11);
+        // viewPos.z = 1.4; //experiment for orthographic mode
+        viewPos.x = clamp(viewPos.x / viewPos.z, -limX, limX) * viewPos.z;
+        viewPos.y = clamp(viewPos.y / viewPos.z, -limY, limY) * viewPos.z;
 
-    float focal = screenParams.x * matrixP._m00 / 2;
-
-    float3x3 J = float3x3(
-        focal / viewPos.z, 0, -(focal * viewPos.x) / (viewPos.z * viewPos.z),
-        0, focal / viewPos.z, -(focal * viewPos.y) / (viewPos.z * viewPos.z),
-        0, 0, 0
-    );
+        J = float3x3(
+            focalX / viewPos.z, 0, -(focalX * viewPos.x) / (viewPos.z * viewPos.z),
+            0, focalY / viewPos.z, -(focalY * viewPos.y) / (viewPos.z * viewPos.z),
+            0, 0, 0
+        );
+    }
     float3x3 W = (float3x3)viewMatrix;
     float3x3 T = mul(J, W);
     float3x3 V = float3x3(
