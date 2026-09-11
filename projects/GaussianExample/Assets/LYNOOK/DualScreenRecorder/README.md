@@ -149,3 +149,69 @@ Tools/LYNOOK/Rebuild and Record Off-Axis Pair
 | 实体双屏 | 未验证 | 仍需实测夹角、边框间距、屏幕三维位姿和目标眼位后在 LYNOOK 真机验收 |
 
 旧 `main.mov / right.mov` 的修改时间保持不变，本次流程没有覆盖它们。
+
+## 独立 3D 视角录制测试 Scene
+
+`Scenes/LYNOOK_DualScreen_3DViewTest.unity` 与接缝校准 Scene 分开，用来评估双屏显示真实 3D 空间时的纵深、透视和跨屏运动：
+
+- 近 / 中 / 远三层透视框与深度物体
+- 沿视线收敛的地面网格和接缝深度轴
+- 从 Main 近景经过接缝、再进入 Right 远景的 10 秒运动球
+- 中景旋转参照物，用于观察两路画面是否来自同一个世界状态
+- 继续使用同一 `LYNOOKDualCameraRig` 共享眼位和物理屏幕 Off-Axis Frustum
+
+该 Scene 使用独立文件名，不覆盖接缝校准输出：
+
+```text
+Recordings/LYNOOK/main_3dview.mp4
+Recordings/LYNOOK/main_3dview.mov
+Recordings/LYNOOK/right_3dview.mp4
+Recordings/LYNOOK/right_3dview.mov
+Recordings/LYNOOK/3dview_physical_preview.mov
+```
+
+Editor 菜单：
+
+```text
+Tools/LYNOOK/Create or Open 3D View Recording Test Scene
+Tools/LYNOOK/Open and Record 3D View Pair
+```
+
+当前 Scene 是通用 3D 观感基线。真实观看距离、是否需要眼位/相机移动、最终展示内容和实体屏标定值补齐后，应替换对应测试参数并重新在真机验收。
+
+## CornerBox45 转角裸眼 3D 概念验证
+
+`Scenes/LYNOOK_DualScreen_CornerBox45Test.unity` 将 Main 与 Side 当作一个凸盒子的正面和右侧面，而不是两个平铺窗口或向观察者打开的凹角。当前概念验证参数：
+
+- 两块物理显示平面夹角：`90°`
+- 固定 Sweet Spot：距转角 `600 mm`
+- 水平观看方位：位于产品右前方，沿凸角外侧对角线 `45°`
+- 中央转角离观察者最近，正面向左、侧面向右后方延伸；两侧外缘必须满足“远小”，不得生成凹角透视
+- Main / Side 继续使用同一观察眼位和各自屏幕四角生成的 Off-Axis Frustum
+- 物理屏幕模型只对 Observer Camera 可见，不会被两路内容相机递归拍入
+- 复用旧测试中的 `Modern Bedroom City View` 高斯场景；在旧场景尺度中将虚拟镜头后退 `9.00 m`，再映射到新的45°共享眼位；这是当前资产在不退到墙体背后的前提下，能稳定覆盖床、床头柜、植物、椅子和活动地面的整屋取景上限
+- 高斯渲染遵守 Camera Culling Mask，Observer 只能通过两块实体屏幕模型看到高斯画面，不会在屏外穿帮
+- 校准用虚拟盒子仍保留在 Scene 中，但默认关闭，生活场景录制不显示透视框、网格和测试方块
+
+除了两路屏幕素材，还增加四台只拍实体屏幕模型的 Observer Camera。标准相机位于 Sweet Spot；另外三台分别抬高 `360 mm`、向观察者左侧偏移 `180 mm`、向观察者右侧偏移 `180 mm`。它们只改变产品模型的观察位置，不修改两路共享眼位或 Off-Axis 投影：
+
+```text
+Recordings/LYNOOK/CornerBox45/front_corner45.mov
+Recordings/LYNOOK/CornerBox45/side_corner45.mov
+Recordings/LYNOOK/CornerBox45/corner45_observer_preview.mov
+Recordings/LYNOOK/CornerBox45/corner45_observer_top.mov
+Recordings/LYNOOK/CornerBox45/corner45_observer_left.mov
+Recordings/LYNOOK/CornerBox45/corner45_observer_right.mov
+```
+
+六路由同一个 `RecorderController` 按 `30 fps / 300帧 / 10秒` 同步录制。偏离 Sweet Spot 后出现的接缝错位或透视变形是固定眼位方案的真实观察结果，不会通过重算投影进行补偿。Editor 菜单：
+
+```text
+Tools/LYNOOK/Create or Open Corner Box 45 Test Scene
+Tools/LYNOOK/Rebuild Corner Box 45 with Gaussian Scene
+Tools/LYNOOK/Open and Record Corner Box 45 Multi-Angle
+```
+
+Scene Builder 会在保存前自动检查凸角透视：中央接缝的投影高度必须同时大于正面外缘和侧面外缘。当前几何结果为 Main `1.213×`、Side `1.069×`，符合近大远小。
+
+这里的“裸眼3D”是固定甜蜜点的单目强制透视，不是多视点立体显示。当前600 mm、90°和45°是概念验证 Profile；LYNOOK 实体夹角、眼位与边框尺寸仍需测量后替换。

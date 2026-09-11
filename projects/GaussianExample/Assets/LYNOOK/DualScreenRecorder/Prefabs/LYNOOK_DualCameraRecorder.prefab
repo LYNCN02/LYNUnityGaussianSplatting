@@ -187,6 +187,7 @@ MonoBehaviour:
   sideScreenCenterLocalMm: {x: 105.47, y: -1.38, z: 91.13}
   sideScreenEulerTrimDegrees: {x: 0, y: 0, z: 0}
   screenAngleDegrees: 51.4
+  sideScreenFormsConvexRightFace: 0
   seamGapMm: 0
   calibrationValuesConfirmed: 0
   nearClipMeters: 0.03

@@ -122,6 +122,8 @@ namespace Lynook.DualScreen
         [Header("Hinge calibration")]
         [Tooltip("Measured angle between screen normals. 51.4 is only the previous camera-yaw baseline until hardware measurement replaces it.")]
         [Range(1f, 179f)] [SerializeField] float screenAngleDegrees = 51.4f;
+        [Tooltip("Use the product-like convex right face: the side panel recedes behind the front-right corner instead of folding toward the viewer.")]
+        [SerializeField] bool sideScreenFormsConvexRightFace;
         [Tooltip("Distance from main visible right edge to side visible left edge, measured along the side plane.")]
         [Min(0f)] [SerializeField] float seamGapMm;
         [Tooltip("Enable only after eye, angle, gap and both screen poses have been measured on actual hardware.")]
@@ -156,6 +158,12 @@ namespace Lynook.DualScreen
         public Camera SideCaptureCamera => sideCaptureCamera;
         public RenderTexture MainCaptureTexture => mainCaptureTexture;
         public RenderTexture SideCaptureTexture => sideCaptureTexture;
+        public Vector3 TargetEyeLocalMm => targetEyeLocalMm;
+        public Vector3 MainScreenCenterLocalMm => mainScreenCenterLocalMm;
+        public Vector3 MainScreenEulerLocalDegrees => mainScreenEulerLocalDegrees;
+        public bool DeriveSidePositionFromHinge => deriveSidePositionFromHinge;
+        public Vector3 SideScreenCenterLocalMm => sideScreenCenterLocalMm;
+        public Vector3 SideScreenEulerTrimDegrees => sideScreenEulerTrimDegrees;
         public Vector3 SharedEyeWorldPosition => captureRig != null
             ? captureRig.TransformPoint(targetEyeLocalMm * MillimetersToMeters)
             : transform.TransformPoint(targetEyeLocalMm * MillimetersToMeters);
@@ -164,7 +172,10 @@ namespace Lynook.DualScreen
         public float SideScreenWidthMm => sideScreenWidthMm;
         public float SideScreenHeightMm => sideScreenHeightMm;
         public float ScreenAngleDegrees => screenAngleDegrees;
+        public bool SideScreenFormsConvexRightFace => sideScreenFormsConvexRightFace;
         public float SeamGapMm => seamGapMm;
+        public float NearClipMeters => nearClipMeters;
+        public float FarClipMeters => farClipMeters;
         public bool CalibrationValuesConfirmed => calibrationValuesConfirmed;
         public bool ProjectionsValid => mainProjectionValid && sideProjectionValid;
         public LYNOOKOffAxisFrustum MainFrustum => mainFrustum;
@@ -183,6 +194,49 @@ namespace Lynook.DualScreen
             mainCaptureTexture = mainTexture;
             sideCaptureTexture = sideTexture;
             ApplyConfiguration();
+        }
+
+        /// <summary>
+        /// Configures a fixed-sweet-spot convex corner-display profile. The eye is
+        /// outside both the front and right faces, while the side panel recedes behind
+        /// the nearest corner. For a 90-degree corner, 45 degrees places the eye on
+        /// the exterior corner diagonal.
+        /// Hardware confirmation intentionally remains false until the real enclosure
+        /// has been measured.
+        /// </summary>
+        public void ConfigureCornerBoxProfile(
+            float eyeToCornerDistanceMm,
+            float viewingAzimuthDegrees,
+            float panelAngleDegrees = 90f)
+        {
+            float safeDistanceMm = Mathf.Max(50f, eyeToCornerDistanceMm);
+            float safeAzimuth = Mathf.Clamp(viewingAzimuthDegrees, 1f, 89f);
+            float radians = safeAzimuth * Mathf.Deg2Rad;
+            float eyeToCornerX = safeDistanceMm * Mathf.Sin(radians);
+            float eyeToCornerZ = safeDistanceMm * Mathf.Cos(radians);
+            float cornerX = mainScreenWidthMm * 0.5f;
+
+            targetEyeLocalMm = new Vector3(cornerX + eyeToCornerX, 0f, 0f);
+            mainScreenCenterLocalMm = new Vector3(0f, 0f, eyeToCornerZ);
+            mainScreenEulerLocalDegrees = Vector3.zero;
+            deriveSidePositionFromHinge = true;
+            sideScreenEulerTrimDegrees = Vector3.zero;
+            screenAngleDegrees = Mathf.Clamp(panelAngleDegrees, 1f, 179f);
+            sideScreenFormsConvexRightFace = true;
+            seamGapMm = 0f;
+            nearClipMeters = 0.01f;
+            farClipMeters = 20f;
+            calibrationValuesConfirmed = false;
+            ApplyConfiguration();
+        }
+
+        public void SetGameViewPreviewEnabled(bool enabled)
+        {
+            showGameViewPreview = enabled;
+            if (enabled)
+                EnsurePreviewCamera();
+            else
+                DestroyPreviewCamera();
         }
 
         void Awake() => ApplyConfiguration();
@@ -264,8 +318,11 @@ namespace Lynook.DualScreen
                 mainScreenWidthMm * MillimetersToMeters,
                 mainScreenHeightMm * MillimetersToMeters);
 
+            float signedSideAngle = sideScreenFormsConvexRightFace
+                ? -screenAngleDegrees
+                : screenAngleDegrees;
             Quaternion sideLocalRotation = mainLocalRotation
-                * Quaternion.Euler(0f, screenAngleDegrees, 0f)
+                * Quaternion.Euler(0f, signedSideAngle, 0f)
                 * Quaternion.Euler(sideScreenEulerTrimDegrees);
             Quaternion sideWorldRotation = reference.rotation * sideLocalRotation;
             Vector3 sideRight = sideWorldRotation * Vector3.right;
@@ -399,6 +456,9 @@ namespace Lynook.DualScreen
             float expectedBottomExtension = (sideScreenHeightMm - mainScreenHeightMm) * MillimetersToMeters;
             float mainAspectError = Mathf.Abs(mainScreenWidthMm / mainScreenHeightMm - (float)MainWidth / MainHeight);
             float sideAspectError = Mathf.Abs(sideScreenWidthMm / sideScreenHeightMm - (float)SideWidth / SideHeight);
+            float sideRecession = Vector3.Dot(sideScreen.TopRight - sideScreen.TopLeft, mainScreen.forward);
+            float eyeOutsideMain = Vector3.Dot(eye - mainScreen.center, -mainScreen.forward);
+            float eyeOutsideSide = Vector3.Dot(eye - sideScreen.center, -sideScreen.forward);
 
             bool valid = mainProjectionValid && sideProjectionValid;
             valid &= Vector3.Distance(mainCaptureCamera.transform.position, eye) < PositionToleranceMeters;
@@ -421,19 +481,28 @@ namespace Lynook.DualScreen
             valid &= mainCaptureCamera.backgroundColor == sideCaptureCamera.backgroundColor;
             valid &= mainCaptureCamera.allowHDR == sideCaptureCamera.allowHDR;
             valid &= mainCaptureCamera.allowMSAA == sideCaptureCamera.allowMSAA;
+            if (sideScreenFormsConvexRightFace)
+            {
+                valid &= sideRecession > 0f;
+                valid &= eyeOutsideMain > 0f;
+                valid &= eyeOutsideSide > 0f;
+            }
 
             string calibrationState = calibrationValuesConfirmed
                 ? "hardware calibration marked confirmed"
                 : "PROVISIONAL values: eye/angle/gap still require hardware measurement";
             report = valid
                 ? $"LYNOOK off-axis configuration is valid ({calibrationState}). "
-                    + $"Shared eye={eye:F4}; angle={screenAngleDegrees:F3} deg; gap={seamGapMm:F3} mm; "
+                    + $"Shared eye={eye:F4}; angle={screenAngleDegrees:F3} deg; "
+                    + $"corner={(sideScreenFormsConvexRightFace ? "convex-right" : "legacy-fold")}; gap={seamGapMm:F3} mm; "
                     + $"side bottom extension={bottomExtension * 1000f:F3} mm. "
                     + $"Main[{mainFrustum}] Side[{sideFrustum}]"
                 : $"LYNOOK off-axis validation failed. sharedEyeError={sharedEyeError:E3} m, "
                     + $"topAlignmentError={topAlignmentError * 1000f:F4} mm, "
                     + $"bottomExtension={bottomExtension * 1000f:F4} mm (expected {expectedBottomExtension * 1000f:F4} mm), "
-                    + $"mainAspectError={mainAspectError:E3}, sideAspectError={sideAspectError:E3}.";
+                    + $"mainAspectError={mainAspectError:E3}, sideAspectError={sideAspectError:E3}, "
+                    + $"sideRecession={sideRecession * 1000f:F3} mm, "
+                    + $"eyeOutsideMain={eyeOutsideMain * 1000f:F3} mm, eyeOutsideSide={eyeOutsideSide * 1000f:F3} mm.";
             return valid;
         }
 
@@ -589,7 +658,7 @@ namespace Lynook.DualScreen
 
     [ExecuteAlways]
     [RequireComponent(typeof(Camera))]
-    sealed class LYNOOKRenderTexturePreviewBlitter : MonoBehaviour
+    public sealed class LYNOOKRenderTexturePreviewBlitter : MonoBehaviour
     {
         public RenderTexture Source { get; set; }
 

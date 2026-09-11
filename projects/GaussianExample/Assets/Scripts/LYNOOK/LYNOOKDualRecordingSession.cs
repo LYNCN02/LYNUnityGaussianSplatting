@@ -25,9 +25,9 @@ namespace Lynook.DualScreen
     [DisallowMultipleComponent]
     public sealed class LYNOOKDualRecordingSession : MonoBehaviour
     {
-        const string MainBaseName = "main_offaxis";
-        const string SideBaseName = "right_offaxis";
-        const string PhysicalPreviewName = "offaxis_physical_preview.mov";
+        const string DefaultMainBaseName = "main_offaxis";
+        const string DefaultSideBaseName = "right_offaxis";
+        const string DefaultPhysicalPreviewName = "offaxis_physical_preview.mov";
         const int PhysicalPreviewMainWidth = 1996;
         const int PhysicalPreviewMainHeight = 1248;
         const int PhysicalPreviewSideWidth = 720;
@@ -39,6 +39,9 @@ namespace Lynook.DualScreen
         [SerializeField, Min(1)] int frameRate = 30;
         [SerializeField, Min(1)] int frameCount = 300;
         [SerializeField] string outputFolder = "Recordings/LYNOOK";
+        [SerializeField] string mainBaseName = DefaultMainBaseName;
+        [SerializeField] string sideBaseName = DefaultSideBaseName;
+        [SerializeField] string physicalPreviewName = DefaultPhysicalPreviewName;
         [SerializeField] LYNOOKMovieOutputFormat outputFormat = LYNOOKMovieOutputFormat.H264Mp4AndFfmpegMov;
         [SerializeField] string ffmpegExecutable = "/opt/homebrew/bin/ffmpeg";
 
@@ -54,6 +57,13 @@ namespace Lynook.DualScreen
         {
             cameraRig = rig;
             sharedTimeline = director;
+        }
+
+        public void SetOutputNames(string mainOutputBaseName, string sideOutputBaseName, string previewFileName)
+        {
+            mainBaseName = RequireSimpleFileName(mainOutputBaseName, nameof(mainOutputBaseName));
+            sideBaseName = RequireSimpleFileName(sideOutputBaseName, nameof(sideOutputBaseName));
+            physicalPreviewName = RequireSimpleFileName(previewFileName, nameof(previewFileName));
         }
 
         public int FrameRate => frameRate;
@@ -142,12 +152,12 @@ namespace Lynook.DualScreen
             controllerSettings.AddRecorderSettings(CreateMovieRecorder(
                 "Main Recorder",
                 cameraRig.MainCaptureTexture,
-                Path.Combine(absoluteOutputFolder, MainBaseName),
+                Path.Combine(absoluteOutputFolder, MainOutputBaseName),
                 outputFormat));
             controllerSettings.AddRecorderSettings(CreateMovieRecorder(
                 "Right Recorder",
                 cameraRig.SideCaptureTexture,
-                Path.Combine(absoluteOutputFolder, SideBaseName),
+                Path.Combine(absoluteOutputFolder, SideOutputBaseName),
                 outputFormat));
 
             RecorderOptions.VerboseMode = true;
@@ -207,12 +217,12 @@ namespace Lynook.DualScreen
             string absoluteOutputFolder = Path.GetFullPath(Path.Combine(Application.dataPath, "..", outputFolder));
             var mainJob = StartRemux(
                 executable,
-                Path.Combine(absoluteOutputFolder, MainBaseName + ".mp4"),
-                Path.Combine(absoluteOutputFolder, MainBaseName + ".mov"));
+                Path.Combine(absoluteOutputFolder, MainOutputBaseName + ".mp4"),
+                Path.Combine(absoluteOutputFolder, MainOutputBaseName + ".mov"));
             var rightJob = StartRemux(
                 executable,
-                Path.Combine(absoluteOutputFolder, SideBaseName + ".mp4"),
-                Path.Combine(absoluteOutputFolder, SideBaseName + ".mov"));
+                Path.Combine(absoluteOutputFolder, SideOutputBaseName + ".mp4"),
+                Path.Combine(absoluteOutputFolder, SideOutputBaseName + ".mov"));
 
             if (mainJob == null || rightJob == null)
             {
@@ -228,7 +238,9 @@ namespace Lynook.DualScreen
             if (mainSucceeded && rightSucceeded)
             {
                 movFinalized = true;
-                Debug.Log("LYNOOK FFmpeg remux finished: main_offaxis.mov + right_offaxis.mov (H.264 stream copy, no re-encode).");
+                Debug.Log(
+                    $"LYNOOK FFmpeg remux finished: {MainOutputBaseName}.mov + {SideOutputBaseName}.mov "
+                    + "(H.264 stream copy, no re-encode).");
             }
             return mainSucceeded && rightSucceeded;
         }
@@ -247,9 +259,9 @@ namespace Lynook.DualScreen
 
             string absoluteOutputFolder = Path.GetFullPath(Path.Combine(Application.dataPath, "..", outputFolder));
             string extension = outputFormat == LYNOOKMovieOutputFormat.H264Mp4 ? ".mp4" : ".mov";
-            string mainInput = Path.Combine(absoluteOutputFolder, MainBaseName + extension);
-            string sideInput = Path.Combine(absoluteOutputFolder, SideBaseName + extension);
-            string finalOutput = Path.Combine(absoluteOutputFolder, PhysicalPreviewName);
+            string mainInput = Path.Combine(absoluteOutputFolder, MainOutputBaseName + extension);
+            string sideInput = Path.Combine(absoluteOutputFolder, SideOutputBaseName + extension);
+            string finalOutput = Path.Combine(absoluteOutputFolder, PhysicalPreviewFileName);
             if (!File.Exists(mainInput) || !File.Exists(sideInput))
             {
                 Debug.LogError($"Cannot create physical preview because an input is missing: {mainInput} / {sideInput}");
@@ -422,6 +434,26 @@ namespace Lynook.DualScreen
         static string Quote(string value)
         {
             return "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+        }
+
+        string MainOutputBaseName => NormalizeOptionalName(mainBaseName, DefaultMainBaseName);
+        string SideOutputBaseName => NormalizeOptionalName(sideBaseName, DefaultSideBaseName);
+        string PhysicalPreviewFileName => NormalizeOptionalName(physicalPreviewName, DefaultPhysicalPreviewName);
+
+        static string NormalizeOptionalName(string value, string fallback)
+        {
+            return string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
+        }
+
+        static string RequireSimpleFileName(string value, string parameterName)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                throw new System.ArgumentException("A non-empty file name is required.", parameterName);
+
+            string trimmed = value.Trim();
+            if (trimmed != Path.GetFileName(trimmed))
+                throw new System.ArgumentException("Use a file name without folders.", parameterName);
+            return trimmed;
         }
 
         static MovieRecorderSettings CreateMovieRecorder(
