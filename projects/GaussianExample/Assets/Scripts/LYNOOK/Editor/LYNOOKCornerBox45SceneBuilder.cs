@@ -21,7 +21,7 @@ namespace Lynook.DualScreen.Editor
         const string RecorderRoot = "Assets/LYNOOK/DualScreenRecorder";
         const string CornerRoot = "Assets/LYNOOK/CornerBox45";
         const string PrefabPath = RecorderRoot + "/Prefabs/LYNOOK_DualCameraRecorder.prefab";
-        const string ScenePath = RecorderRoot + "/Scenes/LYNOOK_DualScreen_CornerBox45Test.unity";
+        const string ScenePath = LYNOOKSceneCatalog.CornerRoom;
         const string ObserverRtPath = CornerRoot + "/RenderTextures/Corner45ObserverRT.renderTexture";
         const string ObserverTopRtPath = CornerRoot + "/RenderTextures/Corner45ObserverTopRT.renderTexture";
         const string ObserverLeftRtPath = CornerRoot + "/RenderTextures/Corner45ObserverLeftRT.renderTexture";
@@ -39,7 +39,7 @@ namespace Lynook.DualScreen.Editor
         const float TestDurationSeconds = 10f;
         const float GaussianDollyBackSourceMeters = 9.00f;
 
-        [MenuItem("Tools/LYNOOK/Create or Open Corner Box 45 Test Scene")]
+        [MenuItem("Tools/LYNOOK/Room Scenes/03 Corner Room - View 45/Create or Open Scene")]
         public static void CreateOrOpenScene()
         {
             if (AssetDatabase.LoadAssetAtPath<SceneAsset>(ScenePath) == null)
@@ -52,17 +52,12 @@ namespace Lynook.DualScreen.Editor
             Debug.Log($"LYNOOK CornerBox45 scene is ready: {ScenePath}");
         }
 
-        [MenuItem("Tools/LYNOOK/Open and Record Corner Box 45 Multi-Angle")]
         public static void OpenAndRecord()
         {
-            if (EditorApplication.isPlayingOrWillChangePlaymode)
-                throw new InvalidOperationException("Exit Play Mode before starting the CornerBox45 recording.");
-
-            CreateOrOpenScene();
-            EditorApplication.EnterPlaymode();
+            LYNOOKRecordingMenu.RecordCorner();
         }
 
-        [MenuItem("Tools/LYNOOK/Rebuild Corner Box 45 with Gaussian Scene")]
+        [MenuItem("Tools/LYNOOK/Room Scenes/03 Corner Room - View 45/Rebuild Room Scene")]
         public static void RebuildWithGaussianScene()
         {
             if (EditorApplication.isPlayingOrWillChangePlaymode)
@@ -243,7 +238,7 @@ namespace Lynook.DualScreen.Editor
             var gaussianObject = new GameObject("GaussianScene_ModernBedroom");
             gaussianObject.transform.SetParent(sceneRoot, false);
 
-            // Preserve the useful viewpoint from GSTestScene instead of fitting the whole
+            // Preserve the useful viewpoint from the room-preview scene instead of fitting the whole
             // scan by its bounds. Both the old source camera and the Gaussian scene receive
             // the same similarity transform, so the old view lands exactly on the new
             // shared eye and faces the 45-degree corner bisector.
@@ -907,6 +902,7 @@ namespace Lynook.DualScreen.Editor
         static void EnsureFolders()
         {
             EnsureFolder("Assets/LYNOOK");
+            EnsureFolder(LYNOOKSceneCatalog.SceneFolder);
             EnsureFolder(CornerRoot);
             EnsureFolder(CornerRoot + "/Materials");
             EnsureFolder(CornerRoot + "/Meshes");

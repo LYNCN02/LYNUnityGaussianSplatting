@@ -11,10 +11,10 @@ namespace Lynook.DualScreen.Editor
 {
     public static class LYNOOKCornerBox45RuntimeExporter
     {
-        const string ScenePath = "Assets/LYNOOK/DualScreenRecorder/Scenes/LYNOOK_DualScreen_CornerBox45Test.unity";
+        const string ScenePath = LYNOOKSceneCatalog.CornerRoom;
         const string OutputPath = "Recordings/LYNOOK/CornerBox45/corner45_runtime_calibration.json";
 
-        [MenuItem("Tools/LYNOOK/Export Corner Box 45 Runtime Calibration JSON")]
+        [MenuItem("Tools/LYNOOK/Room Scenes/03 Corner Room - View 45/Export Calibration JSON")]
         public static void ExportFromMenu()
         {
             Export(false);

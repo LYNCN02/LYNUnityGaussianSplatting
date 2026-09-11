@@ -37,7 +37,7 @@ No additional component or renderer setting is required. Set the Unity Camera **
 ### `GaussianExample` project updates
 
 - Upgraded the example project from Unity `2022.3.47f1` to Unity `6000.3.16f1`.
-- Updated `GSTestScene` with a `CameraRig` containing the main camera and a `SideCamera`. The side camera uses the `SideC` tag and targets Display 2.
+- Updated `00_RoomPreview_Perspective` with a `CameraRig` containing the main camera and a `SideCamera`. The side camera uses the `SideC` tag and targets Display 2.
 - Added `CameraRigTransformCopy` and its custom Inspector. Select `CameraRig` and click **复制 Transform JSON** to copy the rig, main-camera, and side-camera transforms as JSON.
 - Updated the sample camera, Gaussian Splat asset reference, renderer settings, and scene transforms for the LYNOOK test setup.
 - Added the UniVRM/UniGLTF `v0.131.0`, Unity Recorder, Multiplayer Center, Vector Graphics, Accessibility, and Adaptive Performance package dependencies used by the example project.
@@ -48,7 +48,9 @@ Large LYNOOK test assets and recordings are not stored in Git. Files such as `*.
 ## Usage
 
 Download or clone this repository, open `projects/GaussianExample` as a Unity project using Unity `6000.3.16f1`,
-and open `GSTestScene` scene in there.
+and open `Assets/LYNOOK/Scenes/00_RoomPreview_Perspective.unity`.
+
+The four LYNOOK room scenes share `Assets/LYNOOK/Scenes` and the `Tools > LYNOOK > Room Scenes` menu. See the [scene guide](projects/GaussianExample/Assets/LYNOOK/Scenes/README.md) for their purposes and naming convention. The separate URP/HDRP example projects retain their own `GSTestScene`.
 
 Note that the project requires DX12 or Vulkan on Windows, i.e. **DX11 will not work**. This is **not tested at all on mobile/web**, and probably
 does not work there.

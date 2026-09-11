@@ -35,7 +35,6 @@ namespace Lynook.DualScreen
 
         [SerializeField] LYNOOKDualCameraRig cameraRig;
         [SerializeField] PlayableDirector sharedTimeline;
-        [SerializeField] bool autoRecordOnPlay = true;
         [SerializeField, Min(1)] int frameRate = 30;
         [SerializeField, Min(1)] int frameCount = 300;
         [SerializeField] string outputFolder = "Recordings/LYNOOK";
@@ -69,20 +68,49 @@ namespace Lynook.DualScreen
         public int FrameRate => frameRate;
         public int FrameCount => frameCount;
 
-        IEnumerator Start()
-        {
 #if UNITY_EDITOR
-            if (!autoRecordOnPlay)
-                yield break;
+        bool recordingRequested;
+        string requestedOutputFolder;
+        Camera perspectiveMain;
+        Camera perspectiveSide;
+        RenderTexture perspectiveMainTexture;
+        RenderTexture perspectiveSideTexture;
+        RenderTexture previousMainTexture;
+        RenderTexture previousSideTexture;
 
-            // Wait one frame so every scene object, particle system and the splat renderer
-            // has completed initialization before both recorders begin together.
-            yield return null;
-            StartSynchronizedRecording();
-#else
-            yield break;
-#endif
+        public void SetPerspectiveCameras(Camera main, Camera side)
+        {
+            perspectiveMain = main;
+            perspectiveSide = side;
         }
+
+        public void BeginRecording(string folder)
+        {
+            if (!Application.isPlaying || recordingRequested)
+                throw new System.InvalidOperationException("Recording must be requested once in Play Mode from Tools > LYNOOK > Record.");
+            requestedOutputFolder = folder;
+            recordingStarted = false;
+            recordingFinished = false;
+            movFinalized = false;
+            previewFinalized = false;
+            recordingRequested = true;
+            StartCoroutine(RecordAfterInitialization());
+        }
+
+        IEnumerator RecordAfterInitialization()
+        {
+            yield return null;
+            try
+            {
+                StartSynchronizedRecording();
+            }
+            catch (System.Exception exception)
+            {
+                Debug.LogException(exception);
+                EditorApplication.ExitPlaymode();
+            }
+        }
+#endif
 
         void Update()
         {
@@ -118,18 +146,74 @@ namespace Lynook.DualScreen
                 if (RemuxPairToMovSynchronously())
                     CreatePhysicalPreviewSynchronously();
             }
+            ReleasePerspectiveTextures();
+            recordingRequested = false;
 #endif
         }
 
 #if UNITY_EDITOR
+        void ReleasePerspectiveTextures()
+        {
+            if (perspectiveMainTexture != null)
+            {
+                if (perspectiveMain != null)
+                    perspectiveMain.targetTexture = previousMainTexture;
+                perspectiveMainTexture.Release();
+                Destroy(perspectiveMainTexture);
+                perspectiveMainTexture = null;
+            }
+            if (perspectiveSideTexture != null)
+            {
+                if (perspectiveSide != null)
+                    perspectiveSide.targetTexture = previousSideTexture;
+                perspectiveSideTexture.Release();
+                Destroy(perspectiveSideTexture);
+                perspectiveSideTexture = null;
+            }
+        }
+
+        static RenderTexture CreatePerspectiveTexture(int width, int height, string textureName)
+        {
+            var texture = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB32)
+            {
+                name = textureName,
+                antiAliasing = 1,
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear
+            };
+            if (!texture.Create())
+                throw new System.InvalidOperationException("Unable to create recording texture: " + textureName);
+            return texture;
+        }
+
         void StartSynchronizedRecording()
         {
-            if (cameraRig == null)
-                throw new MissingReferenceException("LYNOOKDualRecordingSession requires a LYNOOKDualCameraRig.");
-
-            cameraRig.ApplyConfiguration();
-            if (!cameraRig.TryValidate(out var validationReport))
-                throw new System.InvalidOperationException(validationReport);
+            RenderTexture mainTexture;
+            RenderTexture sideTexture;
+            if (cameraRig != null)
+            {
+                cameraRig.ApplyConfiguration();
+                if (!cameraRig.TryValidate(out var validationReport))
+                    throw new System.InvalidOperationException(validationReport);
+                mainTexture = cameraRig.MainCaptureTexture;
+                sideTexture = cameraRig.SideCaptureTexture;
+            }
+            else
+            {
+                if (perspectiveMain == null || perspectiveSide == null
+                    || !perspectiveMain.isActiveAndEnabled || !perspectiveSide.isActiveAndEnabled)
+                    throw new MissingReferenceException("Perspective recording requires two active cameras.");
+                previousMainTexture = perspectiveMain.targetTexture;
+                previousSideTexture = perspectiveSide.targetTexture;
+                perspectiveMainTexture = CreatePerspectiveTexture(LYNOOKDualCameraRig.MainWidth,
+                    LYNOOKDualCameraRig.MainHeight, "PerspectiveMainCapture");
+                perspectiveSideTexture = CreatePerspectiveTexture(LYNOOKDualCameraRig.SideWidth,
+                    LYNOOKDualCameraRig.SideHeight, "PerspectiveSideCapture");
+                perspectiveMain.targetTexture = perspectiveMainTexture;
+                perspectiveSide.targetTexture = perspectiveSideTexture;
+                mainTexture = perspectiveMainTexture;
+                sideTexture = perspectiveSideTexture;
+            }
 
             if (sharedTimeline != null)
             {
@@ -138,7 +222,7 @@ namespace Lynook.DualScreen
                 sharedTimeline.Evaluate();
             }
 
-            string absoluteOutputFolder = Path.GetFullPath(Path.Combine(Application.dataPath, "..", outputFolder));
+            string absoluteOutputFolder = Path.GetFullPath(Path.Combine(Application.dataPath, "..", requestedOutputFolder ?? outputFolder));
             Directory.CreateDirectory(absoluteOutputFolder);
 
             var controllerSettings = ScriptableObject.CreateInstance<RecorderControllerSettings>();
@@ -151,12 +235,12 @@ namespace Lynook.DualScreen
 
             controllerSettings.AddRecorderSettings(CreateMovieRecorder(
                 "Main Recorder",
-                cameraRig.MainCaptureTexture,
+                mainTexture,
                 Path.Combine(absoluteOutputFolder, MainOutputBaseName),
                 outputFormat));
             controllerSettings.AddRecorderSettings(CreateMovieRecorder(
                 "Right Recorder",
-                cameraRig.SideCaptureTexture,
+                sideTexture,
                 Path.Combine(absoluteOutputFolder, SideOutputBaseName),
                 outputFormat));
 
@@ -214,7 +298,7 @@ namespace Lynook.DualScreen
                 return false;
             }
 
-            string absoluteOutputFolder = Path.GetFullPath(Path.Combine(Application.dataPath, "..", outputFolder));
+            string absoluteOutputFolder = Path.GetFullPath(Path.Combine(Application.dataPath, "..", requestedOutputFolder ?? outputFolder));
             var mainJob = StartRemux(
                 executable,
                 Path.Combine(absoluteOutputFolder, MainOutputBaseName + ".mp4"),
@@ -257,7 +341,7 @@ namespace Lynook.DualScreen
                 return false;
             }
 
-            string absoluteOutputFolder = Path.GetFullPath(Path.Combine(Application.dataPath, "..", outputFolder));
+            string absoluteOutputFolder = Path.GetFullPath(Path.Combine(Application.dataPath, "..", requestedOutputFolder ?? outputFolder));
             string extension = outputFormat == LYNOOKMovieOutputFormat.H264Mp4 ? ".mp4" : ".mov";
             string mainInput = Path.Combine(absoluteOutputFolder, MainOutputBaseName + extension);
             string sideInput = Path.Combine(absoluteOutputFolder, SideOutputBaseName + extension);

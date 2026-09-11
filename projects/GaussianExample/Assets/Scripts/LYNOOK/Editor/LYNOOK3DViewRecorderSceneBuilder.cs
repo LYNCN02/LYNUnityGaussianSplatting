@@ -17,12 +17,12 @@ namespace Lynook.DualScreen.Editor
     public static class LYNOOK3DViewRecorderSceneBuilder
     {
         const string Root = "Assets/LYNOOK/DualScreenRecorder";
-        const string SourceScenePath = "Assets/GSTestScene.unity";
+        const string SourceScenePath = LYNOOKSceneCatalog.RoomPreview;
         const string PrefabPath = Root + "/Prefabs/LYNOOK_DualCameraRecorder.prefab";
-        const string ScenePath = Root + "/Scenes/LYNOOK_DualScreen_3DViewTest.unity";
+        const string ScenePath = LYNOOKSceneCatalog.SpatialDepth;
         const float TestDurationSeconds = 10f;
 
-        [MenuItem("Tools/LYNOOK/Create or Open 3D View Recording Test Scene")]
+        [MenuItem("Tools/LYNOOK/Room Scenes/02 Dual Screen - Depth Test/Create or Open Scene")]
         public static void CreateOrOpenScene()
         {
             if (AssetDatabase.LoadAssetAtPath<SceneAsset>(ScenePath) == null)
@@ -35,14 +35,9 @@ namespace Lynook.DualScreen.Editor
             Debug.Log($"LYNOOK 3D-view recording test scene is ready: {ScenePath}");
         }
 
-        [MenuItem("Tools/LYNOOK/Open and Record 3D View Pair")]
         public static void OpenAndRecord()
         {
-            if (EditorApplication.isPlayingOrWillChangePlaymode)
-                throw new InvalidOperationException("Exit Play Mode before starting the LYNOOK 3D-view recorder.");
-
-            CreateOrOpenScene();
-            EditorApplication.EnterPlaymode();
+            LYNOOKRecordingMenu.RecordDepth();
         }
 
         // Command-line entry for a reproducible asset-generation and compilation check.
@@ -64,6 +59,9 @@ namespace Lynook.DualScreen.Editor
                     PrefabPath);
             if (AssetDatabase.LoadAssetAtPath<SceneAsset>(ScenePath) != null)
                 throw new InvalidOperationException($"The target scene already exists: {ScenePath}");
+
+            if (!AssetDatabase.IsValidFolder(LYNOOKSceneCatalog.SceneFolder))
+                AssetDatabase.CreateFolder("Assets/LYNOOK", "Scenes");
 
             if (!AssetDatabase.CopyAsset(SourceScenePath, ScenePath))
                 throw new IOException($"Failed to copy {SourceScenePath} to {ScenePath}.");

@@ -1,5 +1,7 @@
 # LYNOOK 双屏 Off-Axis 连续场景录制系统
 
+所有房间场景统一放在 `Assets/LYNOOK/Scenes`，请先看[场景用途与命名说明](../Scenes/README.md)。Unity 入口：`Tools > LYNOOK > Room Scenes`。
+
 ## 结论与标定边界
 
 本目录已经从“两个同眼位对称透视相机 + 50° FOV + 51.4° yaw”改为共享眼位的物理屏幕 Off-Axis Projection。两台相机仍在同一观察点，但各自朝向与真实屏幕平面法线一致，投影偏移由屏幕四角生成的 `Matrix4x4.Frustum(left, right, bottom, top, near, far)` 表达，不再用 Side Camera 平移或反复微调 yaw 凑接缝。
@@ -89,6 +91,15 @@ Camera.onPreCull
 - Gaussian 代码没有从 `Camera.fieldOfView` 另建一套透视矩阵。
 - 因此写入 `Camera.projectionMatrix` 的自定义 Frustum 会进入 Gaussian 的中心投影和 covariance 计算；本次实际录制也已用这套相机输出 Gaussian 场景。
 
+## Recording interaction
+
+Use `Tools > LYNOOK > Record` for all four modes, or `Record Current Scene` for the
+open room scene. The command opens the existing scene, records, then stops
+automatically. Pressing Play alone only previews; it does not start recording.
+Each new take is saved to `Recordings/LYNOOK/<scene-name>/<yyyyMMdd_HHmmss_fff>/`.
+Output paths listed below describe the earlier baseline recordings; new takes use
+the same filenames within their own folders. See the [scene guide](../Scenes/README.md).
+
 ## 同步录制与输出
 
 一个 `RecorderController` 同时拥有 Main 和 Right 两个 `MovieRecorderSettings`，只调用一次共同的 `PrepareRecording()` 与 `StartRecording()`：
@@ -113,7 +124,7 @@ MOV 是对 Recorder H.264 MP4 的 stream-copy 重封装，不重新编码。物�
 
 ## 跨接缝测试场景
 
-`Scenes/LYNOOK_DualScreen_SeamTest.unity` 包含真实 3D 内容：
+`Assets/LYNOOK/Scenes/01_DualScreen_SeamCalibration.unity` 包含真实 3D 内容：
 
 - 靠近接缝顶部、中部、底部的三条横线
 - 沿完整接缝高度的竖线
@@ -128,9 +139,9 @@ MOV 是对 Recorder H.264 MP4 的 stream-copy 重封装，不重新编码。物�
 Editor 菜单：
 
 ```text
-Tools/LYNOOK/Rebuild Off-Axis Recorder Assets
-Tools/LYNOOK/Validate Open Off-Axis Rig
-Tools/LYNOOK/Rebuild and Record Off-Axis Pair
+Tools/LYNOOK/Room Scenes/01 Dual Screen - Seam Calibration/Rebuild Scene and Recorder Assets
+Tools/LYNOOK/Room Scenes/Validate Current Dual Screen Rig
+Tools/LYNOOK/Record/01 Dual Screen - Seam Calibration
 ```
 
 ## 2026-08-19 当前验证结果
@@ -152,7 +163,7 @@ Tools/LYNOOK/Rebuild and Record Off-Axis Pair
 
 ## 独立 3D 视角录制测试 Scene
 
-`Scenes/LYNOOK_DualScreen_3DViewTest.unity` 与接缝校准 Scene 分开，用来评估双屏显示真实 3D 空间时的纵深、透视和跨屏运动：
+`Assets/LYNOOK/Scenes/02_DualScreen_DepthTest.unity` 与接缝校准 Scene 分开，用来评估双屏显示真实 3D 空间时的纵深、透视和跨屏运动：
 
 - 近 / 中 / 远三层透视框与深度物体
 - 沿视线收敛的地面网格和接缝深度轴
@@ -173,15 +184,15 @@ Recordings/LYNOOK/3dview_physical_preview.mov
 Editor 菜单：
 
 ```text
-Tools/LYNOOK/Create or Open 3D View Recording Test Scene
-Tools/LYNOOK/Open and Record 3D View Pair
+Tools/LYNOOK/Room Scenes/02 Dual Screen - Depth Test/Create or Open Scene
+Tools/LYNOOK/Record/02 Dual Screen - Depth Test
 ```
 
 当前 Scene 是通用 3D 观感基线。真实观看距离、是否需要眼位/相机移动、最终展示内容和实体屏标定值补齐后，应替换对应测试参数并重新在真机验收。
 
 ## CornerBox45 转角裸眼 3D 概念验证
 
-`Scenes/LYNOOK_DualScreen_CornerBox45Test.unity` 将 Main 与 Side 当作一个凸盒子的正面和右侧面，而不是两个平铺窗口或向观察者打开的凹角。当前概念验证参数：
+`Assets/LYNOOK/Scenes/03_CornerRoom_View45.unity` 将 Main 与 Side 当作一个凸盒子的正面和右侧面，而不是两个平铺窗口或向观察者打开的凹角。当前概念验证参数：
 
 - 两块物理显示平面夹角：`90°`
 - 固定 Sweet Spot：距转角 `600 mm`
@@ -207,9 +218,9 @@ Recordings/LYNOOK/CornerBox45/corner45_observer_right.mov
 六路由同一个 `RecorderController` 按 `30 fps / 300帧 / 10秒` 同步录制。偏离 Sweet Spot 后出现的接缝错位或透视变形是固定眼位方案的真实观察结果，不会通过重算投影进行补偿。Editor 菜单：
 
 ```text
-Tools/LYNOOK/Create or Open Corner Box 45 Test Scene
-Tools/LYNOOK/Rebuild Corner Box 45 with Gaussian Scene
-Tools/LYNOOK/Open and Record Corner Box 45 Multi-Angle
+Tools/LYNOOK/Room Scenes/03 Corner Room - View 45/Create or Open Scene
+Tools/LYNOOK/Room Scenes/03 Corner Room - View 45/Rebuild Room Scene
+Tools/LYNOOK/Record/03 Corner Room - View 45
 ```
 
 Scene Builder 会在保存前自动检查凸角透视：中央接缝的投影高度必须同时大于正面外缘和侧面外缘。当前几何结果为 Main `1.213×`、Side `1.069×`，符合近大远小。

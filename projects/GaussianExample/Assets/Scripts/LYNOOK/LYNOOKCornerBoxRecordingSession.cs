@@ -33,7 +33,6 @@ namespace Lynook.DualScreen
         [SerializeField] RenderTexture observerTopTexture;
         [SerializeField] RenderTexture observerLeftTexture;
         [SerializeField] RenderTexture observerRightTexture;
-        [SerializeField] bool autoRecordOnPlay = true;
         [SerializeField, Min(1)] int frameRate = 30;
         [SerializeField, Min(1)] int frameCount = 300;
         [SerializeField] string outputFolder = "Recordings/LYNOOK/CornerBox45";
@@ -60,18 +59,36 @@ namespace Lynook.DualScreen
             observerRightTexture = observerRightPreview;
         }
 
-        IEnumerator Start()
-        {
 #if UNITY_EDITOR
-            if (!autoRecordOnPlay)
-                yield break;
+        bool recordingRequested;
+        string requestedOutputFolder;
 
-            yield return null;
-            StartSynchronizedRecording();
-#else
-            yield break;
-#endif
+        public void BeginRecording(string folder)
+        {
+            if (!Application.isPlaying || recordingRequested)
+                throw new System.InvalidOperationException("Recording must be requested once in Play Mode from Tools > LYNOOK > Record.");
+            requestedOutputFolder = folder;
+            recordingStarted = false;
+            recordingFinished = false;
+            outputsFinalized = false;
+            recordingRequested = true;
+            StartCoroutine(RecordAfterInitialization());
         }
+
+        IEnumerator RecordAfterInitialization()
+        {
+            yield return null;
+            try
+            {
+                StartSynchronizedRecording();
+            }
+            catch (System.Exception exception)
+            {
+                Debug.LogException(exception);
+                EditorApplication.ExitPlaymode();
+            }
+        }
+#endif
 
         void Update()
         {
@@ -96,6 +113,7 @@ namespace Lynook.DualScreen
 
             if (recordingStarted && !outputsFinalized)
                 FinalizeMovOutputs();
+            recordingRequested = false;
 #endif
         }
 
@@ -113,7 +131,7 @@ namespace Lynook.DualScreen
             if (!cameraRig.TryValidate(out string validationReport))
                 throw new System.InvalidOperationException(validationReport);
 
-            string absoluteOutputFolder = Path.GetFullPath(Path.Combine(Application.dataPath, "..", outputFolder));
+            string absoluteOutputFolder = Path.GetFullPath(Path.Combine(Application.dataPath, "..", requestedOutputFolder ?? outputFolder));
             Directory.CreateDirectory(absoluteOutputFolder);
 
             var settings = ScriptableObject.CreateInstance<RecorderControllerSettings>();
@@ -184,7 +202,7 @@ namespace Lynook.DualScreen
                 return;
             }
 
-            string absoluteOutputFolder = Path.GetFullPath(Path.Combine(Application.dataPath, "..", outputFolder));
+            string absoluteOutputFolder = Path.GetFullPath(Path.Combine(Application.dataPath, "..", requestedOutputFolder ?? outputFolder));
             bool frontOk = RemuxToMov(executable, absoluteOutputFolder, FrontBaseName);
             bool sideOk = RemuxToMov(executable, absoluteOutputFolder, SideBaseName);
             bool observerOk = RemuxToMov(executable, absoluteOutputFolder, ObserverBaseName);

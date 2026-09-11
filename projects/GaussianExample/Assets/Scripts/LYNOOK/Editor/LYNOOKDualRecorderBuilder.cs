@@ -26,12 +26,12 @@ namespace Lynook.DualScreen.Editor
         const string ControllerPath = Root + "/Recorder/DualRecorderControllerSettings.asset";
         const string AnimationPath = Root + "/Timeline/SeamCrossingAnimation.anim";
         const string TimelinePath = Root + "/Timeline/LYNOOK_SeamTestTimeline.playable";
-        const string ScenePath = Root + "/Scenes/LYNOOK_DualScreen_SeamTest.unity";
-        const string SourceScenePath = "Assets/GSTestScene.unity";
+        const string ScenePath = LYNOOKSceneCatalog.SeamCalibration;
+        const string SourceScenePath = LYNOOKSceneCatalog.RoomPreview;
 
         const float TestDurationSeconds = 10f;
 
-        [MenuItem("Tools/LYNOOK/Rebuild Off-Axis Recorder Assets")]
+        [MenuItem("Tools/LYNOOK/Room Scenes/01 Dual Screen - Seam Calibration/Rebuild Scene and Recorder Assets")]
         public static void BuildAssets()
         {
             EnsureFolders();
@@ -54,18 +54,12 @@ namespace Lynook.DualScreen.Editor
             Debug.Log($"LYNOOK recorder assets built. Test scene: {ScenePath}");
         }
 
-        [MenuItem("Tools/LYNOOK/Rebuild and Record Off-Axis Pair")]
         public static void BuildAndRecord()
         {
-            if (EditorApplication.isPlayingOrWillChangePlaymode)
-                throw new InvalidOperationException("Exit Play Mode before starting the LYNOOK recorder.");
-
-            BuildAssets();
-            EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
-            EditorApplication.EnterPlaymode();
+            LYNOOKRecordingMenu.RecordSeam();
         }
 
-        [MenuItem("Tools/LYNOOK/Validate Open Off-Axis Rig")]
+        [MenuItem("Tools/LYNOOK/Room Scenes/Validate Current Dual Screen Rig")]
         public static void ValidateOpenRig()
         {
             var rig = UnityEngine.Object.FindFirstObjectByType<LYNOOKDualCameraRig>(FindObjectsInactive.Include);
@@ -168,7 +162,7 @@ namespace Lynook.DualScreen.Editor
             EnsureFolder(Root + "/RenderTextures");
             EnsureFolder(Root + "/Prefabs");
             EnsureFolder(Root + "/Recorder");
-            EnsureFolder(Root + "/Scenes");
+            EnsureFolder(LYNOOKSceneCatalog.SceneFolder);
             EnsureFolder(Root + "/Timeline");
             EnsureFolder(Root + "/Materials");
         }
