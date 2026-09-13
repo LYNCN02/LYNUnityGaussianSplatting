@@ -51,6 +51,51 @@ Recordings/LYNOOK/<scene-name>/<yyyyMMdd_HHmmss_fff>/
 Existing output basenames and MP4/MOV options are retained inside each new take
 folder. Earlier recordings remain available at their original paths.
 
+### World configuration saved with recordings
+
+All four **Record** commands and **Record Current Scene** now save
+`world_config.json` beside the panel videos in the take folder. The JSON uses
+the LYNOOK runtime `WorldConfig` format: float arrays for transforms, display
+0/1, `Screen_Main` / `Screen_Right` bindings, and an enabled `offAxisFrustum`
+that reproduces the actual capture projection (including ordinary perspective).
+Only the two panel feeds are bound; observer/stitched previews are not world videos.
+
+Cameras are snapshotted after recorder preparation, before recording starts.
+The JSON is published after both panel videos have been finalized, including
+when Play Mode is stopped early. It references actual filenames in the same
+folder: MOV when available, otherwise MP4. No config is published for a missing
+or empty panel file. The take folder name is the `worldId`; keep them identical
+if renaming/copying the folder into `StreamingAssets/Worlds/`.
+
+This exports configuration only. Supply your downloaded GLB separately at
+`mesh/collision.glb`; no mesh is generated, copied, or inferred from the video.
+The complete default configuration is editable in
+`Assets/LYNOOK/WorldExport/world_config.defaults.json`. It uses World E as the
+initial preset: player and avatar spawn, one additional character point, four
+activity points (including `seat_main`), navigation parameters, preview path,
+scan transition, and reflection sphere. Recording replaces the identity, camera
+poses/projections, and video bindings with the current take's values. These are
+reused preset positions, not inferred scene measurements; adjust them for each
+room. The preview and navigation paths are references only: recording does not
+generate those files. Blank path overrides inherit the preset paths.
+
+All current runtime configuration sections are emitted, including disabled
+`continuityTestGeometry`. The obsolete `cameraRigSpawn` alias is omitted in favor
+of `cameraRig`. `worldTransform` uses the runtime's plain transform shape, without
+an unsupported `applyTransform` field.
+
+By default, camera positions use **recording scene coordinates** and
+`worldTransform` is identity. This does not establish alignment with a downloaded
+GLB. Optionally add one **LYNOOKWorldExportSettings** component to an active scene
+object to set asset paths, renderer names, display name, and `worldCoordinateRoot`.
+That root represents the supplied GLB's Unity coordinate frame in the recording
+scene. Camera positions/rotations and frustum distances are converted into that
+frame so the runtime mesh can remain at identity. Only positive uniform scale is
+supported; do not assign a mirrored Gaussian transform as the coordinate root.
+The `recording.meshAlignmentVerified` metadata remains false until separately
+verified. A single configuration describes fixed capture cameras; animated camera
+paths require an additional playback format and are not represented here.
+
 Use **Tools > LYNOOK > Room Scenes** to open scenes without recording. Commands
 labeled **Rebuild** regenerate scene content or recorder assets; recording uses
 existing content and does not rebuild a scene.

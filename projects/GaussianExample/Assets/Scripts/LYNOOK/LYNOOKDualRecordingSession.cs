@@ -50,6 +50,7 @@ namespace Lynook.DualScreen
         bool recordingFinished;
         bool movFinalized;
         bool previewFinalized;
+        LYNOOKRecordingWorldExporter worldExporter;
 #endif
 
         public void SetReferences(LYNOOKDualCameraRig rig, PlayableDirector director)
@@ -93,6 +94,7 @@ namespace Lynook.DualScreen
             recordingFinished = false;
             movFinalized = false;
             previewFinalized = false;
+            worldExporter = null;
             recordingRequested = true;
             StartCoroutine(RecordAfterInitialization());
         }
@@ -146,6 +148,8 @@ namespace Lynook.DualScreen
                 if (RemuxPairToMovSynchronously())
                     CreatePhysicalPreviewSynchronously();
             }
+            if (recordingStarted)
+                worldExporter?.TryWrite();
             ReleasePerspectiveTextures();
             recordingRequested = false;
 #endif
@@ -247,6 +251,10 @@ namespace Lynook.DualScreen
             RecorderOptions.VerboseMode = true;
             recorderController = new RecorderController(controllerSettings);
             recorderController.PrepareRecording();
+            worldExporter = LYNOOKRecordingWorldExporter.Capture(absoluteOutputFolder,
+                cameraRig != null ? cameraRig.MainCaptureCamera : perspectiveMain,
+                cameraRig != null ? cameraRig.SideCaptureCamera : perspectiveSide,
+                MainOutputBaseName, SideOutputBaseName);
 
             // One RecorderController owns both RecorderSettings, so Prepare and Record are
             // issued once for the pair rather than sequentially per camera.
@@ -277,6 +285,8 @@ namespace Lynook.DualScreen
             {
                 CreatePhysicalPreviewSynchronously();
             }
+
+            worldExporter?.TryWrite();
 
             EditorApplication.delayCall += () =>
             {

@@ -1,0 +1,418 @@
+{
+  "worldId": "20260912_005538_997",
+  "displayName": "00_RoomPreview_Perspective",
+  "version": 1,
+  "assets": {
+    "collisionMesh": "mesh/collision.glb",
+    "gridMap": "nav/grid_map.json",
+    "preview": "preview.png"
+  },
+  "worldTransform": {
+    "position": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "rotationEuler": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "scale": [
+      1.0,
+      1.0,
+      1.0
+    ]
+  },
+  "avatarSpawn": {
+    "position": [
+      1.5199999809265137,
+      0.03999999910593033,
+      2.3299999237060547
+    ],
+    "rotationEuler": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "scale": [
+      1.350000023841858,
+      1.350000023841858,
+      1.350000023841858
+    ],
+    "applyTransform": true,
+    "rotationQuaternion": [
+      0.003456530859693885,
+      0.9954109787940979,
+      -0.03950823098421097,
+      -0.08708735555410385
+    ]
+  },
+  "cameraRig": {
+    "applyTransform": true,
+    "position": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "rotationEuler": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "scale": [
+      1.0,
+      1.0,
+      1.0
+    ]
+  },
+  "mainCamera": {
+    "applyTransform": true,
+    "position": [
+      0.04096175730228424,
+      0.9490759372711182,
+      -2.3565773963928223
+    ],
+    "rotationEuler": [
+      3.6456964015960693,
+      352.1363525390625,
+      359.496826171875
+    ],
+    "scale": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "rotationQuaternion": [
+      0.03203509375452995,
+      -0.06839471310377121,
+      -0.002197311958298087,
+      0.9971414804458618
+    ],
+    "fieldOfView": 50.0,
+    "targetDisplay": 0,
+    "offAxisFrustum": {
+      "enabled": true,
+      "left": -0.22382771968841553,
+      "right": 0.22382771968841553,
+      "bottom": -0.1398923248052597,
+      "top": 0.1398923248052597,
+      "near": 0.30000001192092896,
+      "far": 1000.1340942382812
+    }
+  },
+  "sideCamera": {
+    "applyTransform": true,
+    "position": [
+      2.1885180473327637,
+      0.8349665999412537,
+      0.6638498306274414
+    ],
+    "rotationEuler": [
+      0.9439177513122559,
+      262.0762023925781,
+      359.57781982421875
+    ],
+    "scale": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "rotationQuaternion": [
+      0.008186997845768929,
+      -0.7542225122451782,
+      0.0037941504269838333,
+      0.6565569639205933
+    ],
+    "fieldOfView": 50.0,
+    "targetDisplay": 1,
+    "offAxisFrustum": {
+      "enabled": true,
+      "left": -0.07868942618370056,
+      "right": 0.07868942618370056,
+      "bottom": -0.1398923248052597,
+      "top": 0.1398923248052597,
+      "near": 0.30000001192092896,
+      "far": 1000.1340942382812
+    }
+  },
+  "videoMaterials": [
+    {
+      "name": "main",
+      "targetRendererName": "Screen_Main",
+      "video": "main_perspective.mov",
+      "loop": true,
+      "playOnLoad": true,
+      "volume": 0.0
+    },
+    {
+      "name": "right",
+      "targetRendererName": "Screen_Right",
+      "video": "right_perspective.mov",
+      "loop": true,
+      "playOnLoad": true,
+      "volume": 0.0
+    }
+  ],
+  "recording": {
+    "sourceScene": "Assets/LYNOOK/Scenes/00_RoomPreview_Perspective.unity",
+    "capturedAtUtc": "2026-09-11T16:55:41.5258490Z",
+    "coordinateSpace": "recordingScene",
+    "coordinateRoot": "",
+    "mainResolution": [
+      1280,
+      800
+    ],
+    "sideResolution": [
+      720,
+      1280
+    ],
+    "meshAlignmentVerified": false,
+    "defaultsSource": "world_room_e"
+  },
+  "playerSpawn": {
+    "position": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "rotationEuler": [
+      0.0,
+      180.0,
+      0.0
+    ],
+    "scale": [
+      1.0,
+      1.0,
+      1.0
+    ]
+  },
+  "scenePoints": [
+    {
+      "id": 2,
+      "type": "avatar",
+      "transform": {
+        "position": [
+          2.0199999809265137,
+          0.03999999910593033,
+          2.3299999237060547
+        ],
+        "rotationEuler": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.350000023841858,
+          1.350000023841858,
+          1.350000023841858
+        ],
+        "applyTransform": true,
+        "rotationQuaternion": [
+          0.003456530859693885,
+          0.9954109787940979,
+          -0.03950823098421097,
+          -0.08708735555410385
+        ]
+      }
+    }
+  ],
+  "activityPoints": [
+    {
+      "id": "seat_main",
+      "type": "seat",
+      "transform": {
+        "position": [
+          0.8500000238418579,
+          0.11999999731779099,
+          2.0299999713897705
+        ],
+        "rotationEuler": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.350000023841858,
+          1.350000023841858,
+          1.350000023841858
+        ],
+        "applyTransform": true,
+        "rotationQuaternion": [
+          0.017632385715842247,
+          0.9585713744163513,
+          -0.035523973405361176,
+          0.2820780277252197
+        ]
+      },
+      "approachPosition": [
+        0.8500000238418579,
+        0.11999999731779099,
+        1.5299999713897705
+      ],
+      "weight": 2.0,
+      "minStaySeconds": 45.0,
+      "maxStaySeconds": 120.0
+    },
+    {
+      "id": "stand_left_050",
+      "type": "stand",
+      "transform": {
+        "position": [
+          1.0199999809265137,
+          0.03999999910593033,
+          2.3299999237060547
+        ],
+        "rotationEuler": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.350000023841858,
+          1.350000023841858,
+          1.350000023841858
+        ],
+        "applyTransform": true,
+        "rotationQuaternion": [
+          0.003456530859693885,
+          0.9954109787940979,
+          -0.03950823098421097,
+          -0.08708735555410385
+        ]
+      },
+      "approachPosition": [
+        1.0199999809265137,
+        0.03999999910593033,
+        2.3299999237060547
+      ],
+      "weight": 1.0,
+      "minStaySeconds": 12.0,
+      "maxStaySeconds": 30.0
+    },
+    {
+      "id": "stand_left_100",
+      "type": "stand",
+      "transform": {
+        "position": [
+          0.5199999809265137,
+          0.03999999910593033,
+          2.3299999237060547
+        ],
+        "rotationEuler": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.350000023841858,
+          1.350000023841858,
+          1.350000023841858
+        ],
+        "applyTransform": true,
+        "rotationQuaternion": [
+          0.003456530859693885,
+          0.9954109787940979,
+          -0.03950823098421097,
+          -0.08708735555410385
+        ]
+      },
+      "approachPosition": [
+        0.5199999809265137,
+        0.03999999910593033,
+        2.3299999237060547
+      ],
+      "weight": 1.0,
+      "minStaySeconds": 12.0,
+      "maxStaySeconds": 30.0
+    },
+    {
+      "id": "stand_left_front",
+      "type": "stand",
+      "transform": {
+        "position": [
+          0.7699999809265137,
+          0.03999999910593033,
+          1.8299999237060547
+        ],
+        "rotationEuler": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.350000023841858,
+          1.350000023841858,
+          1.350000023841858
+        ],
+        "applyTransform": true,
+        "rotationQuaternion": [
+          0.003456530859693885,
+          0.9954109787940979,
+          -0.03950823098421097,
+          -0.08708735555410385
+        ]
+      },
+      "approachPosition": [
+        0.7699999809265137,
+        0.03999999910593033,
+        1.8299999237060547
+      ],
+      "weight": 1.0,
+      "minStaySeconds": 12.0,
+      "maxStaySeconds": 30.0
+    }
+  ],
+  "navigation": {
+    "gridOrigin": [
+      -10.0,
+      0.0,
+      -10.0
+    ],
+    "gridSizeX": 200,
+    "gridSizeZ": 200,
+    "cellSize": 0.10000000149011612,
+    "agentRadius": 0.25
+  },
+  "transition": {
+    "scanOrigin": [
+      0.0,
+      0.20000000298023224,
+      0.0
+    ],
+    "scanDuration": 0.800000011920929,
+    "scanWidth": 0.10000000149011612,
+    "scanMaxRadius": 18.0,
+    "scanIntensity": 2.5,
+    "scanColor": [
+      0.30000001192092896,
+      0.800000011920929,
+      1.0,
+      1.0
+    ],
+    "duplicateCollisionMeshForScan": true
+  },
+  "rectBall": {
+    "position": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "rotationEuler": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "scale": [
+      3.0,
+      3.0,
+      3.0
+    ],
+    "enabled": true
+  },
+  "continuityTestGeometry": {
+    "enabled": false,
+    "gridHalfCount": 7,
+    "gridSpacing": 1.0
+  }
+}

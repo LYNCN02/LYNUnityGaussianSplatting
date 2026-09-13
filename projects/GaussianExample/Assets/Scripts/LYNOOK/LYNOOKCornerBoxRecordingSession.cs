@@ -43,6 +43,7 @@ namespace Lynook.DualScreen
         bool recordingStarted;
         bool recordingFinished;
         bool outputsFinalized;
+        LYNOOKRecordingWorldExporter worldExporter;
 #endif
 
         public void SetReferences(
@@ -71,6 +72,7 @@ namespace Lynook.DualScreen
             recordingStarted = false;
             recordingFinished = false;
             outputsFinalized = false;
+            worldExporter = null;
             recordingRequested = true;
             StartCoroutine(RecordAfterInitialization());
         }
@@ -113,6 +115,8 @@ namespace Lynook.DualScreen
 
             if (recordingStarted && !outputsFinalized)
                 FinalizeMovOutputs();
+            if (recordingStarted)
+                worldExporter?.TryWrite();
             recordingRequested = false;
 #endif
         }
@@ -169,6 +173,8 @@ namespace Lynook.DualScreen
             RecorderOptions.VerboseMode = true;
             recorderController = new RecorderController(settings);
             recorderController.PrepareRecording();
+            worldExporter = LYNOOKRecordingWorldExporter.Capture(absoluteOutputFolder,
+                cameraRig.MainCaptureCamera, cameraRig.SideCaptureCamera, FrontBaseName, SideBaseName);
             if (!recorderController.StartRecording())
                 throw new System.InvalidOperationException("Unity Recorder failed to start the CornerBox45 multi-angle recording.");
 
@@ -181,6 +187,7 @@ namespace Lynook.DualScreen
         void FinalizeOutputsAndExit()
         {
             FinalizeMovOutputs();
+            worldExporter?.TryWrite();
             EditorApplication.delayCall += () =>
             {
                 if (Application.isBatchMode)

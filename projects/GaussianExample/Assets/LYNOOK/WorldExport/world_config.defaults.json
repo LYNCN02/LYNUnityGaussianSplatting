@@ -1,0 +1,362 @@
+{
+  "worldId": "world_recording",
+  "displayName": "Recorded World",
+  "version": 1,
+  "assets": {
+    "collisionMesh": "mesh/collision.glb",
+    "gridMap": "nav/grid_map.json",
+    "preview": "preview.png"
+  },
+  "worldTransform": {
+    "position": [
+      0,
+      0,
+      0
+    ],
+    "rotationEuler": [
+      0,
+      0,
+      0
+    ],
+    "scale": [
+      1,
+      1,
+      1
+    ]
+  },
+  "playerSpawn": {
+    "position": [
+      0,
+      0,
+      0
+    ],
+    "rotationEuler": [
+      0,
+      180,
+      0
+    ],
+    "scale": [
+      1,
+      1,
+      1
+    ]
+  },
+  "avatarSpawn": {
+    "applyTransform": true,
+    "position": [
+      1.5199999809265137,
+      0.03999999910593033,
+      2.3299999237060547
+    ],
+    "rotationQuaternion": [
+      0.003456530859693885,
+      0.9954109787940979,
+      -0.03950823098421097,
+      -0.08708735555410385
+    ],
+    "scale": [
+      1.35,
+      1.35,
+      1.35
+    ]
+  },
+  "scenePoints": [
+    {
+      "id": 2,
+      "type": "avatar",
+      "transform": {
+        "applyTransform": true,
+        "position": [
+          2.0199999809265137,
+          0.03999999910593033,
+          2.3299999237060547
+        ],
+        "rotationQuaternion": [
+          0.003456530859693885,
+          0.9954109787940979,
+          -0.03950823098421097,
+          -0.08708735555410385
+        ],
+        "scale": [
+          1.35,
+          1.35,
+          1.35
+        ]
+      }
+    }
+  ],
+  "activityPoints": [
+    {
+      "id": "seat_main",
+      "type": "seat",
+      "transform": {
+        "applyTransform": true,
+        "position": [
+          0.8500000238418579,
+          0.11999999731779099,
+          2.0299999713897705
+        ],
+        "rotationQuaternion": [
+          0.017632385715842247,
+          0.9585713744163513,
+          -0.035523973405361176,
+          0.2820780277252197
+        ],
+        "scale": [
+          1.350000023841858,
+          1.350000023841858,
+          1.350000023841858
+        ]
+      },
+      "approachPosition": [
+        0.8500000238418579,
+        0.11999999731779099,
+        1.5299999713897707
+      ],
+      "weight": 2.0,
+      "minStaySeconds": 45.0,
+      "maxStaySeconds": 120.0
+    },
+    {
+      "id": "stand_left_050",
+      "type": "stand",
+      "transform": {
+        "applyTransform": true,
+        "position": [
+          1.0199999809265137,
+          0.03999999910593033,
+          2.3299999237060547
+        ],
+        "rotationQuaternion": [
+          0.003456530859693885,
+          0.9954109787940979,
+          -0.03950823098421097,
+          -0.08708735555410385
+        ],
+        "scale": [
+          1.35,
+          1.35,
+          1.35
+        ]
+      },
+      "weight": 1.0,
+      "minStaySeconds": 12.0,
+      "maxStaySeconds": 30.0,
+      "approachPosition": [
+        1.0199999809265137,
+        0.03999999910593033,
+        2.3299999237060547
+      ]
+    },
+    {
+      "id": "stand_left_100",
+      "type": "stand",
+      "transform": {
+        "applyTransform": true,
+        "position": [
+          0.5199999809265137,
+          0.03999999910593033,
+          2.3299999237060547
+        ],
+        "rotationQuaternion": [
+          0.003456530859693885,
+          0.9954109787940979,
+          -0.03950823098421097,
+          -0.08708735555410385
+        ],
+        "scale": [
+          1.35,
+          1.35,
+          1.35
+        ]
+      },
+      "weight": 1.0,
+      "minStaySeconds": 12.0,
+      "maxStaySeconds": 30.0,
+      "approachPosition": [
+        0.5199999809265137,
+        0.03999999910593033,
+        2.3299999237060547
+      ]
+    },
+    {
+      "id": "stand_left_front",
+      "type": "stand",
+      "transform": {
+        "applyTransform": true,
+        "position": [
+          0.7699999809265137,
+          0.03999999910593033,
+          1.829999923706055
+        ],
+        "rotationQuaternion": [
+          0.003456530859693885,
+          0.9954109787940979,
+          -0.03950823098421097,
+          -0.08708735555410385
+        ],
+        "scale": [
+          1.35,
+          1.35,
+          1.35
+        ]
+      },
+      "weight": 1.0,
+      "minStaySeconds": 12.0,
+      "maxStaySeconds": 30.0,
+      "approachPosition": [
+        0.7699999809265137,
+        0.03999999910593033,
+        1.829999923706055
+      ]
+    }
+  ],
+  "cameraRig": {
+    "applyTransform": true,
+    "position": [
+      0.07000000029802322,
+      1.4600000381469727,
+      -2.549999952316284
+    ],
+    "rotationEuler": [
+      3.6456964015960693,
+      352.1363525390625,
+      359.496826171875
+    ],
+    "scale": [
+      1,
+      1,
+      1
+    ]
+  },
+  "mainCamera": {
+    "applyTransform": true,
+    "position": [
+      1.2989086668324017,
+      2.032326258865478,
+      -11.447318416620703
+    ],
+    "rotationQuaternion": [
+      0.030439117923378944,
+      0.3183980882167816,
+      0.01023186556994915,
+      0.9474130868911743
+    ],
+    "scale": [
+      1,
+      1,
+      1
+    ],
+    "fieldOfView": 50,
+    "targetDisplay": 0,
+    "offAxisFrustum": {
+      "enabled": true,
+      "left": -0.07029632106423378,
+      "right": -0.050000003539025784,
+      "bottom": -0.006342747365124524,
+      "top": 0.006342747365124524,
+      "near": 0.04999999888241291,
+      "far": 100.0
+    }
+  },
+  "sideCamera": {
+    "applyTransform": true,
+    "position": [
+      1.2989086668324017,
+      2.032326258865478,
+      -11.447318416620703
+    ],
+    "rotationQuaternion": [
+      0.028758728937919864,
+      -0.44478068797038617,
+      -0.014288682499538075,
+      0.8950636877944014
+    ],
+    "scale": [
+      1,
+      1,
+      1
+    ],
+    "fieldOfView": 50,
+    "targetDisplay": 1,
+    "offAxisFrustum": {
+      "enabled": true,
+      "left": 0.049999975599348545,
+      "right": 0.05731852725148201,
+      "bottom": -0.006668015266768634,
+      "top": 0.006342746200971305,
+      "near": 0.04999999888241291,
+      "far": 100.0
+    }
+  },
+  "videoMaterials": [
+    {
+      "name": "main",
+      "targetRendererName": "Screen_Main",
+      "video": "videos/main.mov",
+      "loop": true,
+      "playOnLoad": true,
+      "volume": 0.0
+    },
+    {
+      "name": "right",
+      "targetRendererName": "Screen_Right",
+      "video": "videos/right.mov",
+      "loop": true,
+      "playOnLoad": true,
+      "volume": 0.0
+    }
+  ],
+  "navigation": {
+    "gridOrigin": [
+      -10,
+      0,
+      -10
+    ],
+    "gridSizeX": 200,
+    "gridSizeZ": 200,
+    "cellSize": 0.1,
+    "agentRadius": 0.25
+  },
+  "rectBall": {
+    "enabled": true,
+    "scale": [
+      3,
+      3,
+      3
+    ],
+    "position": [
+      0,
+      0,
+      0
+    ],
+    "rotationEuler": [
+      0,
+      0,
+      0
+    ]
+  },
+  "transition": {
+    "scanOrigin": [
+      0,
+      0.2,
+      0
+    ],
+    "scanDuration": 0.8,
+    "scanWidth": 0.1,
+    "scanMaxRadius": 18.0,
+    "scanIntensity": 2.5,
+    "scanColor": [
+      0.3,
+      0.8,
+      1.0,
+      1.0
+    ],
+    "duplicateCollisionMeshForScan": true
+  },
+  "continuityTestGeometry": {
+    "enabled": false,
+    "gridHalfCount": 7,
+    "gridSpacing": 1.0
+  }
+}

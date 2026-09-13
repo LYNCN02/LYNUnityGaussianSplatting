@@ -59,11 +59,15 @@ namespace Lynook.DualScreen.Editor
             if (!ScenePaths.Contains(scenePath)
                 || AssetDatabase.LoadAssetAtPath<SceneAsset>(scenePath) == null)
                 throw new FileNotFoundException("Select one of the four LYNOOK room scenes.", scenePath);
-            if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
-                return;
-
             if (SceneManager.GetActiveScene().path != scenePath || SceneManager.sceneCount != 1)
+            {
+                if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
+                    return;
                 EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
+            }
+
+            // Recording the already-open scene needs no disk save: Play Mode restores
+            // its current edits, and the exporter captures these same in-memory cameras.
 
             // SessionState survives script reload when entering Play Mode. Only this
             // explicit request starts a recording; pressing Play has no pending request.
