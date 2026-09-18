@@ -71,6 +71,7 @@ namespace Lynook.DualScreen
 
 #if UNITY_EDITOR
         bool recordingRequested;
+        bool includeWorldConfiguration = true;
         string requestedOutputFolder;
         Camera perspectiveMain;
         Camera perspectiveSide;
@@ -85,11 +86,12 @@ namespace Lynook.DualScreen
             perspectiveSide = side;
         }
 
-        public void BeginRecording(string folder)
+        public void BeginRecording(string folder, bool includeWorldConfig = true)
         {
             if (!Application.isPlaying || recordingRequested)
                 throw new System.InvalidOperationException("Recording must be requested once in Play Mode from Tools > LYNOOK > Record.");
             requestedOutputFolder = folder;
+            includeWorldConfiguration = includeWorldConfig;
             recordingStarted = false;
             recordingFinished = false;
             movFinalized = false;
@@ -251,10 +253,10 @@ namespace Lynook.DualScreen
             RecorderOptions.VerboseMode = true;
             recorderController = new RecorderController(controllerSettings);
             recorderController.PrepareRecording();
-            worldExporter = LYNOOKRecordingWorldExporter.Capture(absoluteOutputFolder,
+            worldExporter = includeWorldConfiguration ? LYNOOKRecordingWorldExporter.Capture(absoluteOutputFolder,
                 cameraRig != null ? cameraRig.MainCaptureCamera : perspectiveMain,
                 cameraRig != null ? cameraRig.SideCaptureCamera : perspectiveSide,
-                MainOutputBaseName, SideOutputBaseName);
+                MainOutputBaseName, SideOutputBaseName) : null;
 
             // One RecorderController owns both RecorderSettings, so Prepare and Record are
             // issued once for the pair rather than sequentially per camera.
