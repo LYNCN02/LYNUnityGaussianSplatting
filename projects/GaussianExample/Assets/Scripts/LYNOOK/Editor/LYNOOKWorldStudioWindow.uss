@@ -1,0 +1,15 @@
+.studio { flex-grow: 1; padding: 12px; }
+.heading { font-size: 20px; margin-bottom: 6px; }
+.description { white-space: normal; margin-bottom: 10px; }
+.section { margin-top: 10px; margin-bottom: 4px; padding: 8px; border-width: 1px; border-color: #555555; border-radius: 5px; }
+.row { flex-direction: row; margin-top: 4px; margin-bottom: 4px; }
+.row > Button { flex-grow: 1; min-height: 26px; }
+.path { flex-grow: 1; flex-shrink: 1; flex-basis: 0; min-width: 0; }
+.path > .unity-base-field__label { min-width: 64px; width: 64px; }
+.path > .unity-base-field__input { min-width: 0; }
+.file-row > Button { flex-grow: 0; width: 76px; }
+.primary { background-color: #226d72; color: #ffffff; min-height: 32px; }
+.status { white-space: normal; padding: 9px; background-color: #303c40; color: #ffffff; margin-top: 8px; }
+.preview-row { flex-direction: row; height: 165px; margin-top: 8px; }
+.preview { flex-grow: 1; background-color: #111111; margin-right: 4px; }
+.point-label { flex-grow: 1; -unity-text-align: middle-left; }

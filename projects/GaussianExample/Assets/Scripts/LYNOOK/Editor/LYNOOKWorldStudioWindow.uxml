@@ -1,0 +1,9 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements">
+  <ui:Style src="LYNOOKWorldStudioWindow.uss" />
+  <ui:ScrollView name="studio" class="studio">
+    <ui:Label text="LYNOOK 房间制作器" class="heading" />
+    <ui:Label text="本地制作 · 导入 → 对齐 → 取景 → 出生地 → 活动点 → 录制" class="description" />
+    <ui:VisualElement name="controls" />
+    <ui:Label name="status" text="选择一组本地高斯和配套 GLB 开始。" class="status" />
+  </ui:ScrollView>
+</ui:UXML>
