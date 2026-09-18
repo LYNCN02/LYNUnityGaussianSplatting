@@ -77,6 +77,43 @@ namespace GaussianSplatting.Editor
             ApplyQualityLevel();
         }
 
+        // Shared entry point for authoring tools and queued Editor jobs.
+        public static GaussianSplatAsset ImportFile(string inputFile, string outputFolder, bool highQuality = false)
+        {
+            if (!File.Exists(inputFile))
+                throw new FileNotFoundException("Gaussian input file was not found.", inputFile);
+            string extension = Path.GetExtension(inputFile).ToLowerInvariant();
+            if (extension != ".ply" && extension != ".spz")
+                throw new ArgumentException("Select a PLY or SPZ file.", nameof(inputFile));
+            if (GaussianFileReader.ReadFileHeader(inputFile) <= 0)
+                throw new InvalidOperationException("Gaussian input contains no splats.");
+            string fullOutput = Path.GetFullPath(outputFolder);
+            if (!fullOutput.StartsWith(Path.GetFullPath(Application.dataPath) + Path.DirectorySeparatorChar,
+                    StringComparison.Ordinal))
+                throw new ArgumentException("Output must be inside Assets.", nameof(outputFolder));
+            var creator = CreateInstance<GaussianSplatAssetCreator>();
+            try
+            {
+                creator.m_InputFile = Path.GetFullPath(inputFile);
+                creator.m_OutputFolder = "Assets/" + fullOutput.Substring(Path.GetFullPath(Application.dataPath).Length + 1).Replace('\\', '/');
+                creator.m_Quality = highQuality ? DataQuality.High : DataQuality.Medium;
+                creator.ApplyQualityLevel();
+                creator.CreateAsset();
+                if (!string.IsNullOrEmpty(creator.m_ErrorMessage))
+                    throw new InvalidOperationException(creator.m_ErrorMessage);
+                var asset = AssetDatabase.LoadAssetAtPath<GaussianSplatAsset>(
+                    creator.m_OutputFolder + "/" + Path.GetFileNameWithoutExtension(inputFile) + ".asset");
+                if (asset == null || asset.splatCount == 0)
+                    throw new InvalidOperationException("Gaussian import produced no splats.");
+                return asset;
+            }
+            finally
+            {
+                EditorUtility.ClearProgressBar();
+                DestroyImmediate(creator);
+            }
+        }
+
         void OnGUI()
         {
             EditorGUILayout.Space();
