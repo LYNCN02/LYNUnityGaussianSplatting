@@ -176,11 +176,49 @@ namespace Lynook.DualScreen.Editor
                 LYNOOKWorldStudioService.Changed(world); RefreshPreview();
             });
             Property(alignment, "alignmentConfirmed", "我已检查高斯与 GLB 对齐");
-            Button(alignment, "在场景中点击地面", () => BeginPicking(1));
+            var floorRow = Row(alignment);
+            Button(floorRow, "自动识别地面范围", () => Run(() =>
+            {
+                Undo.RecordObject(world, "Auto detect floor");
+                LYNOOKWorldStudioService.AutoDetectFloor(world);
+                Undo.RecordObject(world, "Invalidate alignment confirmation"); world.alignmentConfirmed = false;
+                LYNOOKWorldStudioService.Changed(world); Rebuild();
+                string shape = world.HasWalkPolygon ? $"{world.walkPolygon.Count} 边形" : $"{world.walkSize.x:F2} × {world.walkSize.y:F2} m";
+                SetStatus($"已自动识别地面：高度 {world.floorHeight:F3}，范围 {shape}。");
+            }));
+            Button(floorRow, "在场景中点击地面", () => BeginPicking(1));
             Property(alignment, "floorHeight", "地面高度（房间坐标）");
             Property(alignment, "walkCenter", "可走范围中心 X / Z");
-            Property(alignment, "walkSize", "可走范围宽 / 深");
-            Help(alignment, "青色框是可走范围。点击地面会更新高度和范围中心；对齐只做人工确认，工具不会猜测 GLB 与高斯的对应关系。");
+            Property(alignment, "walkSize", "可走范围宽 / 深（矩形回退）");
+            Property(alignment, "walkAreaThickness", "可走范围可视化厚度（米）");
+
+            // 多边形可走范围
+            var polyFold = new Foldout { text = "可走范围多边形（不规则地面）", value = world.HasWalkPolygon };
+            alignment.Add(polyFold);
+            string polyInfo = world.HasWalkPolygon
+                ? $"当前 {world.walkPolygon.Count} 边形，边界 {world.walkSize.x:F2} × {world.walkSize.y:F2} m。"
+                : "当前使用矩形范围，未定义多边形。";
+            Help(polyFold, polyInfo);
+            var polyRow1 = Row(polyFold);
+            Button(polyRow1, "点选添加顶点", () => BeginPicking(4));
+            Button(polyRow1, "撤销最后一个顶点", () => Run(() =>
+            {
+                if (world.walkPolygon.Count == 0) throw new InvalidOperationException("没有可撤销的顶点。");
+                Undo.RecordObject(world, "Remove polygon vertex");
+                world.walkPolygon.RemoveAt(world.walkPolygon.Count - 1);
+                LYNOOKWorldStudioService.Changed(world); Rebuild();
+                SetStatus($"已撤销顶点，剩余 {world.walkPolygon.Count} 个。");
+            }));
+            var polyRow2 = Row(polyFold);
+            Button(polyRow2, "清空多边形（用矩形）", () => Run(() =>
+            {
+                Undo.RecordObject(world, "Clear walk polygon");
+                world.walkPolygon.Clear();
+                LYNOOKWorldStudioService.Changed(world); Rebuild();
+                SetStatus("已清空多边形，改用矩形范围。");
+            }));
+            Help(polyFold, "点选添加顶点：在 Scene 视图依次点击地面，形成闭合多边形（≥3 个顶点即生效）。Esc 结束添加。");
+            Help(alignment, "青色填充是可走范围。自动识别会拟合地面真实多边形轮廓；也可手动点选顶点定义不规则形状。");
 
             var camera = Section("3 · 相机取景", true);
             var cameraRow = Row(camera);
@@ -325,7 +363,9 @@ namespace Lynook.DualScreen.Editor
             pickingMode = mode;
             var view = SceneView.lastActiveSceneView ?? GetWindow<SceneView>();
             view.Focus();
-            SetStatus("在 Scene 视图点击 GLB 地面。Esc 取消，Alt + 鼠标仍可浏览。");
+            SetStatus(mode == 4
+                ? "依次点击地面添加多边形顶点，Esc 结束。"
+                : "在 Scene 视图点击 GLB 地面。Esc 取消，Alt + 鼠标仍可浏览。");
         }
 
         void DuringSceneGUI(SceneView view)
@@ -341,13 +381,30 @@ namespace Lynook.DualScreen.Editor
             if (pickingMode == 0) return;
             Event current = Event.current;
             if (current.type == EventType.KeyDown && current.keyCode == KeyCode.Escape)
-            { pickingMode = 0; current.Use(); SetStatus("已取消点选。"); return; }
+            { pickingMode = 0; current.Use(); SetStatus("已结束点选。"); return; }
             if (current.alt) return;
             if (current.type == EventType.Layout) HandleUtility.AddDefaultControl(GUIUtility.GetControlID(FocusType.Passive));
             Ray ray = HandleUtility.GUIPointToWorldRay(current.mousePosition);
             if (!LYNOOKWorldStudioService.Raycast(world, ray, out var hit)) return;
             Handles.color = Color.cyan;
             Handles.DrawWireDisc(hit.point, hit.normal, world.agentRadius * world.coordinateRoot.lossyScale.x);
+
+            // 多边形顶点添加模式：预览当前多边形 + 待添加的边
+            if (pickingMode == 4 && world.walkPolygon.Count > 0)
+            {
+                Handles.color = new Color(0.25f, 0.8f, 0.85f, 0.9f);
+                Vector3 up = world.coordinateRoot.up;
+                Vector3 prev = world.coordinateRoot.TransformPoint(new Vector3(world.walkPolygon[0].x, world.floorHeight, world.walkPolygon[0].y));
+                for (int i = 1; i < world.walkPolygon.Count; i++)
+                {
+                    Vector3 p = world.coordinateRoot.TransformPoint(new Vector3(world.walkPolygon[i].x, world.floorHeight, world.walkPolygon[i].y));
+                    Handles.DrawLine(prev, p);
+                    prev = p;
+                }
+                // 从最后一个顶点到当前鼠标点的预览线
+                Handles.DrawDottedLine(prev, hit.point, 5f);
+            }
+
             if (current.type == EventType.MouseDown && current.button == 0)
             {
                 current.Use();
@@ -359,8 +416,26 @@ namespace Lynook.DualScreen.Editor
                         Undo.RecordObject(world, "Set floor");
                         Vector3 local = world.coordinateRoot.InverseTransformPoint(hit.point);
                         world.floorHeight = local.y; world.walkCenter = new Vector2(local.x, local.z);
+                        pickingMode = 0; Rebuild(); SetStatus("地面高度与中心已设置。");
                     }
-                    else if (pickingMode == 2) LYNOOKWorldStudioService.PlaceSpawn(world, hit);
+                    else if (pickingMode == 2)
+                    {
+                        LYNOOKWorldStudioService.PlaceSpawn(world, hit);
+                        pickingMode = 0; Rebuild(); SetStatus("出生地已设置。可以继续调整，或保存制作草稿。");
+                    }
+                    else if (pickingMode == 4)
+                    {
+                        if (Vector3.Dot(hit.normal, world.coordinateRoot.up) < 0.9f) throw new InvalidOperationException("请选择平坦地面作为多边形顶点。");
+                        Undo.RecordObject(world, "Add polygon vertex");
+                        Vector3 local = world.coordinateRoot.InverseTransformPoint(hit.point);
+                        // 第一个顶点同步地面高度
+                        if (world.walkPolygon.Count == 0) world.floorHeight = local.y;
+                        world.walkPolygon.Add(new Vector2(local.x, local.z));
+                        LYNOOKWorldStudioService.Changed(world);
+                        // 不退出点选模式，允许继续添加
+                        SetStatus($"已添加第 {world.walkPolygon.Count} 个顶点，继续点击或 Esc 结束。");
+                        view.Repaint();
+                    }
                     else
                     {
                         if (!world.spawnPlaced) throw new InvalidOperationException("先设置出生地。");
@@ -371,9 +446,9 @@ namespace Lynook.DualScreen.Editor
                         point.transform.position = hit.point;
                         point.transform.rotation = world.avatarSpawn.rotation;
                         Undo.RegisterCreatedObjectUndo(point, "Add activity point");
+                        pickingMode = 0; Rebuild(); SetStatus("活动点已添加。");
                     }
-                    LYNOOKWorldStudioService.Changed(world);
-                    pickingMode = 0; Rebuild(); SetStatus("位置已设置。可以继续调整，或保存制作草稿。");
+                    if (pickingMode != 4) LYNOOKWorldStudioService.Changed(world);
                 });
             }
             if (current.type == EventType.MouseMove) view.Repaint();
