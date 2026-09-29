@@ -1,6 +1,7 @@
 #if UNITY_EDITOR
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -10,6 +11,7 @@ using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using Debug = UnityEngine.Debug;
 using Object = UnityEngine.Object;
 
 namespace Lynook.DualScreen.Editor
@@ -17,13 +19,15 @@ namespace Lynook.DualScreen.Editor
     public static class LYNOOKWorldStudioService
     {
         public const string WorkspaceRoot = "Assets/LYNOOK/Worlds";
+        /// <summary>批量录制下载资产的临时目录根（系统临时目录下的 lynook_batch）。</summary>
+        public static string BatchTempRoot => Path.Combine(Path.GetTempPath(), "lynook_batch");
         const string RigPrefab = "Assets/LYNOOK/DualScreenRecorder/Prefabs/LYNOOK_DualCameraRecorder.prefab";
         const string ShaderRoot = "Packages/org.nesnausk.gaussian-splatting/Shaders/";
 
         public static LYNOOKWorldAuthoring Current => SceneManager.GetActiveScene().GetRootGameObjects()
             .SelectMany(go => go.GetComponentsInChildren<LYNOOKWorldAuthoring>(true)).SingleOrDefault();
 
-        public static LYNOOKWorldAuthoring Import(string gaussianFile, string glbFile, string title, bool highQuality)
+        public static LYNOOKWorldAuthoring Import(string gaussianFile, string glbFile, string title, string roomType, bool highQuality)
         {
             RequireFile(gaussianFile, ".ply", ".spz");
             RequireFile(glbFile, ".glb");
@@ -98,6 +102,7 @@ namespace Lynook.DualScreen.Editor
             var host = new GameObject("LYNOOK World — " + (string.IsNullOrWhiteSpace(title) ? id : title.Trim()));
             var world = host.AddComponent<LYNOOKWorldAuthoring>();
             world.worldId = id;
+            world.roomType = string.IsNullOrWhiteSpace(roomType) ? "bedroom" : roomType.Trim();
             world.displayName = string.IsNullOrWhiteSpace(title) ? Path.GetFileNameWithoutExtension(gaussianFile) : title.Trim();
             world.workspacePath = folder;
             world.gaussianSourcePath = sourceGaussian;
@@ -356,10 +361,77 @@ namespace Lynook.DualScreen.Editor
         }
 
         /// <summary>
+        /// 从用户点击点出发提取地面：用点击 Y 作为地面高度（跳过直方图），
+        /// 在房间局部高度容差内栅格化，以点击 X/Z 选取连通域及闭合轮廓。
+        /// </summary>
+        public static void AutoDetectFloorFromPoint(LYNOOKWorldAuthoring world, Vector3 hitWorldPoint)
+        {
+            if (world.coordinateRoot == null || world.collisionObject == null)
+                throw new InvalidOperationException("缺少房间坐标或 GLB。");
+
+            Vector3 up = world.coordinateRoot.up;
+            // 放宽法线阈值到 25°，吸收颗粒侧面
+            float cosThreshold = Mathf.Cos(25f * Mathf.Deg2Rad);
+            // Use the configured tolerance; do not merge furniture half a metre above the click.
+            float heightTolerance = Mathf.Max(world.floorTolerance, 0.02f);
+
+            Vector3 seedLocal = world.coordinateRoot.InverseTransformPoint(hitWorldPoint);
+            float floorLocalY = seedLocal.y;
+
+            // 收集点击高度附近的近水平三角面
+            var mainFloor = new List<FloorTri>();
+            foreach (var filter in world.collisionObject.GetComponentsInChildren<MeshFilter>(true))
+            {
+                Mesh mesh = filter.sharedMesh;
+                if (mesh == null) continue;
+                Vector3[] verts = mesh.vertices;
+                int[] tris = mesh.triangles;
+                Transform tr = filter.transform;
+                for (int i = 0; i + 2 < tris.Length; i += 3)
+                {
+                    Vector3 wa = tr.TransformPoint(verts[tris[i]]);
+                    Vector3 wb = tr.TransformPoint(verts[tris[i + 1]]);
+                    Vector3 wc = tr.TransformPoint(verts[tris[i + 2]]);
+                    Vector3 n = Vector3.Cross(wb - wa, wc - wa);
+                    float area2 = n.magnitude;
+                    if (area2 < 1e-8f) continue;
+                    if (Mathf.Abs(Vector3.Dot(n / area2, up)) < cosThreshold) continue;
+                    Vector3 la = world.coordinateRoot.InverseTransformPoint(wa);
+                    Vector3 lb = world.coordinateRoot.InverseTransformPoint(wb);
+                    Vector3 lc = world.coordinateRoot.InverseTransformPoint(wc);
+                    if (Mathf.Max(Mathf.Abs(la.y - floorLocalY), Mathf.Abs(lb.y - floorLocalY), Mathf.Abs(lc.y - floorLocalY)) > heightTolerance) continue;
+                    mainFloor.Add(new FloorTri
+                    {
+                        a = new Vector2(la.x, la.z),
+                        b = new Vector2(lb.x, lb.z),
+                        c = new Vector2(lc.x, lc.z),
+                        worldY = (wa.y + wb.y + wc.y) / 3f,
+                        area = area2 * 0.5f
+                    });
+                }
+            }
+
+            if (mainFloor.Count == 0)
+                throw new InvalidOperationException("点击位置附近没有检测到地面三角面。");
+
+            // The click's X/Z selects the connected component, never the largest island.
+            // This is the selected floor footprint; agent clearance is a separate operation.
+            var polygon = ExtractFloorPolygon(mainFloor, 0, new Vector2(seedLocal.x, seedLocal.z));
+            if (polygon.Count < 3)
+                throw new InvalidOperationException("点击点所在的地面区域无法形成闭合轮廓；原范围保持不变。");
+
+            world.floorHeight = floorLocalY;
+            world.walkPolygon = polygon;
+            world.WalkBounds(out var center2, out var size2);
+            world.walkCenter = center2;
+            world.walkSize = size2;
+        }
+
+        /// <summary>
         /// 从地面三角面集合提取 2D 轮廓多边形（房间局部 XZ）：
         /// 栅格化 → 最大连通域 → marching squares 等高线 → Douglas-Peucker 简化。
         /// </summary>
-        static List<Vector2> ExtractFloorPolygon(List<FloorTri> tris, float margin)
+        static List<Vector2> ExtractFloorPolygon(List<FloorTri> tris, float margin, Vector2? seed = null)
         {
             // 1. 计算 XZ 包围盒
             float minX = tris[0].a.x, maxX = minX, minZ = tris[0].a.y, maxZ = minZ;
@@ -373,8 +445,13 @@ namespace Lynook.DualScreen.Editor
             foreach (var t in tris) { Enc(t.a); Enc(t.b); Enc(t.c); }
 
             float cell = 0.08f; // 栅格分辨率，平衡精度与性能
-            int cols = Mathf.Clamp(Mathf.CeilToInt((maxX - minX) / cell) + 1, 1, 4096);
-            int rows = Mathf.Clamp(Mathf.CeilToInt((maxZ - minZ) / cell) + 1, 1, 4096);
+            // Empty border closes contours that touch the source mesh bounds.
+            minX -= cell * 2; minZ -= cell * 2;
+            maxX += cell * 2; maxZ += cell * 2;
+            int cols = Mathf.CeilToInt((maxX - minX) / cell) + 1;
+            int rows = Mathf.CeilToInt((maxZ - minZ) / cell) + 1;
+            if ((long)cols * rows > 4000000)
+                throw new InvalidOperationException("地面范围过大，请检查 GLB 尺度。");
 
             // 2. 栅格化：每个网格中心若落在任一地面三角面内则占用
             var occ = new bool[cols, rows];
@@ -426,6 +503,15 @@ namespace Lynook.DualScreen.Editor
             for (int i = 1; i < regionSize.Count; i++)
                 if (regionSize[i] > bestSize) { bestSize = regionSize[i]; bestLabel = i + 1; }
 
+            if (seed.HasValue)
+            {
+                int sx = Mathf.FloorToInt((seed.Value.x - minX) / cell);
+                int sz = Mathf.FloorToInt((seed.Value.y - minZ) / cell);
+                if (sx < 0 || sx >= cols || sz < 0 || sz >= rows || labels[sz * cols + sx] == 0)
+                    throw new InvalidOperationException("点击点不在可提取地面栅格内，请稍向地面内部点击。");
+                bestLabel = labels[sz * cols + sx];
+            }
+
             // 4. marching squares 提取最大连通域的外轮廓
             var segments = new List<(Vector2 a, Vector2 b)>();
             for (int cx = 0; cx < cols - 1; cx++)
@@ -436,7 +522,7 @@ namespace Lynook.DualScreen.Editor
                 int c01 = (labels[(cz + 1) * cols + cx] == bestLabel) ? 1 : 0;
                 int c11 = (labels[(cz + 1) * cols + cx + 1] == bestLabel) ? 1 : 0;
                 int code = c00 | (c10 << 1) | (c01 << 2) | (c11 << 3);
-                Vector2 bl = new Vector2(minX + cx * cell, minZ + cz * cell);
+                Vector2 bl = new Vector2(minX + (cx + 0.5f) * cell, minZ + (cz + 0.5f) * cell);
                 Vector2 br = bl + new Vector2(cell, 0);
                 Vector2 tl = bl + new Vector2(0, cell);
                 Vector2 tr = bl + new Vector2(cell, cell);
@@ -462,12 +548,14 @@ namespace Lynook.DualScreen.Editor
             }
 
             // 5. 把线段串成闭合轮廓
-            var contour = ChainSegments(segments);
+            var contour = ChainSegments(segments, seed);
             if (contour.Count < 3) return new List<Vector2>();
 
             // 6. Douglas-Peucker 简化
             float simplifyTol = cell * 1.5f;
             var simplified = DouglasPeucker(contour, simplifyTol);
+            if (seed.HasValue && !LYNOOKWorldAuthoring.PointInPolygon(seed.Value, simplified))
+                simplified = contour;
 
             // 7. 内缩 margin，避免角色贴墙（把多边形整体向质心收缩一小步的近似：
             //    这里直接对每个顶点沿角平分线内移；若退化则回退原轮廓）
@@ -487,40 +575,39 @@ namespace Lynook.DualScreen.Editor
         }
 
         // 把无序列表线段按端点匹配串成一个闭合折线
-        static List<Vector2> ChainSegments(List<(Vector2 a, Vector2 b)> segs)
+        static List<Vector2> ChainSegments(List<(Vector2 a, Vector2 b)> segs, Vector2? seed = null)
         {
-            if (segs.Count == 0) return new List<Vector2>();
-            var result = new List<Vector2>();
             var remaining = new LinkedList<(Vector2 a, Vector2 b)>(segs);
-            var first = remaining.First.Value;
-            remaining.RemoveFirst();
-            result.Add(first.a);
-            Vector2 head = first.b;
-            const float eps = 1e-4f;
+            var best = new List<Vector2>();
+            float bestArea = 0;
+            const float eps2 = 1e-8f;
             while (remaining.Count > 0)
             {
-                var node = remaining.First;
-                bool found = false;
-                while (node != null)
+                var first = remaining.First.Value;
+                remaining.RemoveFirst();
+                var loop = new List<Vector2> { first.a };
+                Vector2 head = first.b;
+                while ((head - first.a).sqrMagnitude > eps2)
                 {
-                    var (a, b) = node.Value;
-                    if ((a - head).sqrMagnitude < eps * eps)
-                    {
-                        result.Add(a); head = b;
-                        var next = node.Next; remaining.Remove(node); node = next;
-                        found = true; break;
-                    }
-                    if ((b - head).sqrMagnitude < eps * eps)
-                    {
-                        result.Add(b); head = a;
-                        var next = node.Next; remaining.Remove(node); node = next;
-                        found = true; break;
-                    }
-                    node = node.Next;
+                    loop.Add(head);
+                    var node = remaining.First;
+                    while (node != null && (node.Value.a - head).sqrMagnitude > eps2 &&
+                           (node.Value.b - head).sqrMagnitude > eps2) node = node.Next;
+                    if (node == null) break;
+                    head = (node.Value.a - head).sqrMagnitude <= eps2 ? node.Value.b : node.Value.a;
+                    remaining.Remove(node);
                 }
-                if (!found) break;
+                if ((head - first.a).sqrMagnitude > eps2 || loop.Count < 3) continue;
+                if (seed.HasValue && !LYNOOKWorldAuthoring.PointInPolygon(seed.Value, loop)) continue;
+                float area = 0;
+                for (int i = 0; i < loop.Count; i++)
+                {
+                    Vector2 p = loop[i], q = loop[(i + 1) % loop.Count];
+                    area += p.x * q.y - q.x * p.y;
+                }
+                if (Mathf.Abs(area) > bestArea) { best = loop; bestArea = Mathf.Abs(area); }
             }
-            return result;
+            return best;
         }
 
         static List<Vector2> DouglasPeucker(List<Vector2> points, float epsilon)
@@ -577,7 +664,6 @@ namespace Lynook.DualScreen.Editor
                 Vector2 e2 = (next - cur).normalized;
                 Vector2 bisect = (e1 - e2).normalized; // 指向多边形内部（逆时针时）
                 // 根据面积符号判断朝向，修正内缩方向
-                float Cross(Vector2 a, Vector2 b) => a.x * b.y - a.y * b.x;
                 double area = 0;
                 for (int k = 0; k < n; k++) area += poly[k].x * poly[(k + 1) % n].y - poly[(k + 1) % n].x * poly[k].y;
                 if (area < 0) bisect = -bisect;
@@ -629,16 +715,33 @@ namespace Lynook.DualScreen.Editor
         public static bool Raycast(LYNOOKWorldAuthoring world, Ray ray, out RaycastHit nearest, float distance = 10000)
         {
             nearest = default;
+            if (world == null || world.collisionObject == null) return false;
             bool found = false;
             Physics.SyncTransforms();
-            foreach (var collider in world.collisionObject.GetComponentsInChildren<Collider>())
+            // Imported room meshes can face outward. Query both sides when picking
+            // from inside, without changing the project's global physics setting.
+            bool previousBackfaces = Physics.queriesHitBackfaces;
+            try
             {
-                if (!collider.enabled || !collider.Raycast(ray, out var hit, distance)) continue;
-                distance = hit.distance;
-                nearest = hit;
-                found = true;
+                Physics.queriesHitBackfaces = true;
+                foreach (var collider in world.collisionObject.GetComponentsInChildren<Collider>())
+                {
+                    if (!collider.enabled || !collider.Raycast(ray, out var hit, distance)) continue;
+                    distance = hit.distance;
+                    if (Vector3.Dot(hit.normal, ray.direction) > 0) hit.normal = -hit.normal;
+                    nearest = hit;
+                    found = true;
+                }
             }
+            finally { Physics.queriesHitBackfaces = previousBackfaces; }
             return found;
+        }
+
+        // Do not look through walls or accept a wall as a fallback floor.
+        public static bool RaycastPreferFloor(LYNOOKWorldAuthoring world, Ray ray, out RaycastHit best, float distance = 10000)
+        {
+            return Raycast(world, ray, out best, distance) &&
+                Vector3.Dot(best.normal, world.coordinateRoot.up) >= Mathf.Cos(25f * Mathf.Deg2Rad);
         }
 
         public static bool ValidStandingPoint(LYNOOKWorldAuthoring world, Vector3 position, out string reason)
@@ -704,39 +807,64 @@ namespace Lynook.DualScreen.Editor
             ValidateSettings(world);
             if (!world.spawnPlaced) throw new InvalidOperationException("请先点选出生地。");
             if (!ValidStandingPoint(world, world.avatarSpawn.position, out string reason)) throw new InvalidOperationException("出生地：" + reason);
-            var candidates = new List<Vector3>();
             float scale = world.coordinateRoot.lossyScale.x;
+            float minDist = world.pointSpacing * scale;
             world.WalkBounds(out var center, out var size);
             float halfX = size.x * 0.5f, halfZ = size.y * 0.5f;
-            for (float x = -halfX + world.agentRadius; x <= halfX - world.agentRadius; x += world.pointSpacing)
-            for (float z = -halfZ + world.agentRadius; z <= halfZ - world.agentRadius; z += world.pointSpacing)
+            float minX = center.x - halfX, maxX = center.x + halfX;
+            float minZ = center.y - halfZ, maxZ = center.y + halfZ;
+
+            // 1. 在多边形边界盒内随机撒点，过滤出可站立且从出生地可达的候选点。
+            //    尝试次数按面积与间距估算，保证大区域也能采到足够候选。
+            int attempts = Mathf.Clamp(Mathf.CeilToInt(size.x * size.y / Mathf.Max(0.04f, world.pointSpacing * world.pointSpacing)) * 4, 200, 4000);
+            var candidates = new List<Vector3>(attempts);
+            var rng = new System.Random(Guid.NewGuid().GetHashCode());
+            for (int i = 0; i < attempts; i++)
             {
-                Vector2 localXZ = new Vector2(x + center.x, z + center.y);
+                Vector2 localXZ = new Vector2(
+                    (float)(minX + rng.NextDouble() * (maxX - minX)),
+                    (float)(minZ + rng.NextDouble() * (maxZ - minZ)));
                 if (!world.IsInsideWalkArea(localXZ)) continue;
                 Vector3 local = new Vector3(localXZ.x, world.floorHeight + world.floorTolerance + 0.05f, localXZ.y);
                 if (!Raycast(world, new Ray(world.coordinateRoot.TransformPoint(local), -world.coordinateRoot.up), out var hit,
                         (world.floorTolerance * 2 + 0.1f) * scale)) continue;
-                if (Vector3.Distance(hit.point, world.avatarSpawn.position) < world.pointSpacing * scale) continue;
-                if (ValidStandingPoint(world, hit.point, out _) && DirectPathClear(world, world.avatarSpawn.position, hit.point)) candidates.Add(hit.point);
+                if (Vector3.Distance(hit.point, world.avatarSpawn.position) < minDist) continue;
+                if (!ValidStandingPoint(world, hit.point, out _)) continue;
+                if (!DirectPathClear(world, world.avatarSpawn.position, hit.point)) continue;
+                candidates.Add(hit.point);
             }
-            candidates = candidates.OrderBy(p => Vector3.SqrMagnitude(p - world.avatarSpawn.position)).ToList();
+
+            // 2. 打乱候选点顺序，按最小间距贪心选择，保证位置随机且分布均匀。
+            for (int i = candidates.Count - 1; i > 0; i--)
+            {
+                int j = rng.Next(i + 1);
+                (candidates[i], candidates[j]) = (candidates[j], candidates[i]);
+            }
             var accepted = new List<Vector3>();
             foreach (var p in candidates)
             {
-                // Runtime currently moves directly between activity points. Require every pair to be safe.
-                if (accepted.Any(q => Vector3.Distance(p, q) < world.pointSpacing * scale || !DirectPathClear(world, p, q))) continue;
+                bool tooClose = false;
+                for (int k = 0; k < accepted.Count; k++)
+                {
+                    if (Vector3.Distance(p, accepted[k]) < minDist) { tooClose = true; break; }
+                }
+                if (tooClose) continue;
                 accepted.Add(p);
                 if (accepted.Count >= world.maximumPoints) break;
             }
             if (accepted.Count == 0) throw new InvalidOperationException("没有找到安全点位。请检查地面高度、活动范围和 GLB 对齐；原有点位已保留。");
+
             Undo.IncrementCurrentGroup();
             int group = Undo.GetCurrentGroup();
-            foreach (Transform old in world.activityPoints.Cast<Transform>().ToArray()) Undo.DestroyObjectImmediate(old.gameObject);
+            for (int i = world.activityPoints.childCount - 1; i >= 0; i--)
+                Undo.DestroyObjectImmediate(world.activityPoints.GetChild(i).gameObject);
             for (int i = 0; i < accepted.Count; i++)
             {
                 Transform point = Child(world.activityPoints, "stand_" + (i + 1).ToString("D2"));
                 point.position = accepted[i];
                 point.rotation = world.avatarSpawn.rotation;
+                var meta = point.gameObject.AddComponent<LYNOOKActivityPoint>();
+                meta.type = "stand";
                 Undo.RegisterCreatedObjectUndo(point.gameObject, "Generate activity points");
             }
             Undo.CollapseUndoOperations(group);
@@ -796,7 +924,7 @@ namespace Lynook.DualScreen.Editor
             if (!EditorSceneManager.SaveScene(world.gameObject.scene)) throw new IOException("制作场景未保存。");
             var payload = new Draft
             {
-                worldId = world.worldId, displayName = world.displayName,
+                worldId = world.worldId, roomType = world.roomType, displayName = world.displayName,
                 gaussian = world.gaussianSourcePath.Substring(world.workspacePath.Length + 1),
                 collision = world.collisionSourcePath.Substring(world.workspacePath.Length + 1),
                 gaussianSha256 = world.gaussianSha256, collisionSha256 = world.collisionSha256,
@@ -807,7 +935,8 @@ namespace Lynook.DualScreen.Editor
                 floorHeight = world.floorHeight, walkCenter = world.walkCenter, walkSize = world.walkSize,
                 walkPolygon = world.walkPolygon, walkAreaThickness = world.walkAreaThickness,
                 agentRadius = world.agentRadius, agentHeight = world.agentHeight, pointSpacing = world.pointSpacing,
-                floorTolerance = world.floorTolerance, maximumPoints = world.maximumPoints, recordingSeconds = world.recordingSeconds
+                floorTolerance = world.floorTolerance, maximumPoints = world.maximumPoints, recordingSeconds = world.recordingSeconds,
+                deployTargetPath = world.deployTargetPath
             };
             string path = world.workspacePath + "/world_draft.json";
             string temporary = path + ".tmp";
@@ -818,6 +947,109 @@ namespace Lynook.DualScreen.Editor
             AssetDatabase.Refresh();
         }
 
+        /// <summary>
+        /// 一键发布：把当前房间的完整工作区（高斯资产、制作场景、配置等）复制到部署工程的目标路径下，
+        /// 同时把最近一次录制产物（双屏视频、world_config.json 等）一并迁移过去。
+        /// 目标路径应为另一个 Unity 工程的 Assets 目录（或其子目录）的绝对路径。
+        /// </summary>
+        public static string Deploy(LYNOOKWorldAuthoring world, string targetPath)
+        {
+            if (world == null) throw new InvalidOperationException("没有制作场景。");
+            if (string.IsNullOrWhiteSpace(targetPath)) throw new InvalidOperationException("请先在「部署目标路径」中填写 Unity 部署工程的 Assets 目录。");
+            targetPath = Environment.ExpandEnvironmentVariables(targetPath.Trim());
+            if (!Path.IsPathRooted(targetPath))
+                throw new InvalidOperationException("部署目标路径必须是绝对路径：" + targetPath);
+            if (!Directory.Exists(targetPath))
+                throw new InvalidOperationException("部署目标路径不存在，请先在部署工程中创建该目录：" + targetPath);
+
+            string sourceDir = Path.GetFullPath(world.workspacePath);
+            string targetRoot = Path.GetFullPath(targetPath);
+            // 防止把工作区复制到自身内部（无限递归 / 自拷贝）。
+            if (PathStartsWith(sourceDir, targetRoot))
+                throw new InvalidOperationException("部署目标路径不能位于当前工程的房间工作区内部。");
+
+            string destDir = Path.Combine(targetRoot, world.worldId);
+            if (Directory.Exists(destDir))
+            {
+                if (!EditorUtility.DisplayDialog("发布到部署工程",
+                    $"目标位置已存在同名房间目录：\n{destDir}\n\n是否覆盖？", "覆盖", "取消"))
+                    throw new InvalidOperationException("用户取消发布。");
+            }
+
+            int fileCount = 0;
+            long totalBytes = 0;
+            try
+            {
+                EditorUtility.DisplayProgressBar("发布到部署工程", "正在复制房间工作区…", 0.1f);
+                CopyDirectory(sourceDir, destDir, ref fileCount, ref totalBytes);
+
+                // 同时迁移最近一次录制产物（双屏视频 + world_config.json + collision.glb + preview）
+                string latestRecording = FindLatestRecording(world.worldId);
+                string recordingDest = null;
+                if (!string.IsNullOrEmpty(latestRecording))
+                {
+                    EditorUtility.DisplayProgressBar("发布到部署工程", "正在复制最近录制产物…", 0.7f);
+                    recordingDest = Path.Combine(destDir, "Recording");
+                    CopyDirectory(latestRecording, recordingDest, ref fileCount, ref totalBytes);
+                }
+
+                // 若目标在本工程 Assets 内，刷新一下；否则仅在目标工程打开时由其自行导入。
+                string projectAssets = Path.GetFullPath("Assets");
+                if (PathStartsWith(targetRoot, projectAssets))
+                {
+                    EditorUtility.DisplayProgressBar("发布到部署工程", "刷新 AssetDatabase…", 0.95f);
+                    AssetDatabase.Refresh();
+                }
+
+                string sizeMB = (totalBytes / 1024.0 / 1024.0).ToString("F2");
+                string extra = string.IsNullOrEmpty(recordingDest) ? "" : $"，并包含最近录制产物 {recordingDest}";
+                return $"已发布 {fileCount} 个文件（约 {sizeMB} MB）到 {destDir}{extra}。请在部署工程中等待 Unity 导入完成。";
+            }
+            finally
+            {
+                EditorUtility.ClearProgressBar();
+            }
+        }
+
+        static bool PathStartsWith(string path, string root)
+        {
+            if (string.IsNullOrEmpty(path) || string.IsNullOrEmpty(root)) return false;
+            string p = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            string r = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            return p.StartsWith(r, StringComparison.OrdinalIgnoreCase);
+        }
+
+        static void CopyDirectory(string source, string dest, ref int fileCount, ref long totalBytes)
+        {
+            Directory.CreateDirectory(dest);
+            foreach (var file in Directory.GetFiles(source))
+            {
+                string targetFile = Path.Combine(dest, Path.GetFileName(file));
+                File.Copy(file, targetFile, true);
+                fileCount++;
+                totalBytes += new FileInfo(targetFile).Length;
+            }
+            foreach (var dir in Directory.GetDirectories(source))
+                CopyDirectory(dir, Path.Combine(dest, Path.GetFileName(dir)), ref fileCount, ref totalBytes);
+        }
+
+        static string FindLatestRecording(string worldId)
+        {
+            string recordingsRoot = Path.GetFullPath("Recordings/LYNOOK/WorldStudio");
+            if (!Directory.Exists(recordingsRoot)) return null;
+            string prefix = worldId + "_";
+            string latest = null;
+            DateTime latestTime = DateTime.MinValue;
+            foreach (var dir in Directory.GetDirectories(recordingsRoot))
+            {
+                string name = Path.GetFileName(dir);
+                if (!name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+                var time = Directory.GetCreationTimeUtc(dir);
+                if (time > latestTime) { latestTime = time; latest = dir; }
+            }
+            return latest;
+        }
+
         [Serializable] public sealed class Pose
         {
             public string name;
@@ -825,10 +1057,354 @@ namespace Lynook.DualScreen.Editor
             public static Pose From(Transform value) => new Pose { name = value.name, position = value.localPosition, rotationEuler = value.localEulerAngles, scale = value.localScale };
         }
 
+        // ---- 场景队列 / 批量录制 ----
+
+        /// <summary>数据库 scenes 表中一条待转换（待录制）场景。</summary>
+        [Serializable] public sealed class SceneQueueItem
+        {
+            public int id;
+            public string name, prompt, model, status, convertStatus, convertTaskId, roomType;
+            public string operationId, providerSceneId, marbleUrl, thumbnailUrl;
+            public string colliderMeshUrl, splatUrl, panoUrl, hdrPanoUrl;
+            public string worldJsonUrl, previewVideoUrl;
+            public string error, convertError;
+            public string createdAt, convertQueuedAt;
+            public string ownerEmail, ownerUsername, ownerName;
+            // spzUrls 是 JSON 对象，JsonUtility 不支持字典；保留原始字符串供后续解析。
+            public string spzUrls;
+        }
+
+        [Serializable] sealed class SceneQueueResult
+        {
+            public SceneQueueItem[] rows;
+        }
+
+        /// <summary>
+        /// 拉取待转换（convert_status = pending）的场景列表。
+        /// 通过本机 Tools/scene-queue-json.mjs 查询 Postgres，返回结果不做认领，仅展示。
+        /// </summary>
+        public static SceneQueueItem[] FetchSceneQueue(int limit = 50)
+        {
+            string scriptPath = ResolveSceneQueueScript();
+            if (string.IsNullOrEmpty(scriptPath))
+                throw new InvalidOperationException("找不到 Tools/scene-queue-json.mjs，请确认仓库根目录。");
+            string nodePath = LocateNode();
+            var start = new ProcessStartInfo
+            {
+                FileName = nodePath,
+                Arguments = $"\"{scriptPath}\" --limit={limit}",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+            };
+            using (var process = Process.Start(start))
+            {
+                if (process == null) throw new InvalidOperationException("无法启动 node 进程。");
+                string stdout = process.StandardOutput.ReadToEnd();
+                string stderr = process.StandardError.ReadToEnd();
+                process.WaitForExit();
+                if (process.ExitCode != 0)
+                    throw new InvalidOperationException(
+                        $"查询场景队列失败（exit {process.ExitCode}）：{stderr.Trim()}");
+                if (string.IsNullOrWhiteSpace(stdout))
+                    throw new InvalidOperationException("场景队列查询无输出：" + stderr.Trim());
+                // 取出首个 { 到末尾，避免 dotenv/启动信息污染。
+                int brace = stdout.IndexOf('{');
+                if (brace < 0) throw new InvalidOperationException("场景队列输出不是 JSON：" + stdout.Trim());
+                string json = stdout.Substring(brace);
+                var result = JsonUtility.FromJson<SceneQueueResult>(json);
+                if (result == null || result.rows == null)
+                    throw new InvalidOperationException("场景队列 JSON 解析失败。");
+                return result.rows;
+            }
+        }
+
+        static string ResolveSceneQueueScript()
+        {
+            // GaussianExample 工程位于 <repo>/projects/GaussianExample，Tools 在 <repo>/Tools。
+            string projectRoot = Directory.GetParent(Application.dataPath)?.FullName;
+            if (string.IsNullOrEmpty(projectRoot)) return null;
+            string[] candidates =
+            {
+                Path.GetFullPath(Path.Combine(projectRoot, "..", "..", "Tools", "scene-queue-json.mjs")),
+                Path.GetFullPath(Path.Combine(projectRoot, "Tools", "scene-queue-json.mjs")),
+            };
+            foreach (var c in candidates) if (File.Exists(c)) return c;
+            return null;
+        }
+
+        static string LocateNode()
+        {
+            string path = Environment.GetEnvironmentVariable("PATH") ?? "";
+            foreach (var dir in path.Split(Path.PathSeparator))
+            {
+                if (string.IsNullOrWhiteSpace(dir)) continue;
+                string candidate = Path.Combine(dir, "node");
+                if (File.Exists(candidate)) return candidate;
+            }
+            // macOS 常见位置兜底
+            foreach (var fallback in new[] { "/usr/local/bin/node", "/opt/homebrew/bin/node", "/usr/bin/node" })
+                if (File.Exists(fallback)) return fallback;
+            throw new InvalidOperationException("未找到 node 可执行文件，请确认 PATH 或安装 Node.js。");
+        }
+
+        // ---- 批量录制辅助 ----
+
+        /// <summary>运行一个 Tools 下的 node 脚本，解析 stdout 的 JSON。</summary>
+        static T RunNodeScript<T>(string scriptName, string arguments) where T : class
+        {
+            string scriptPath = ResolveToolScript(scriptName);
+            if (string.IsNullOrEmpty(scriptPath))
+                throw new InvalidOperationException("找不到脚本 Tools/" + scriptName);
+            var start = new ProcessStartInfo
+            {
+                FileName = LocateNode(),
+                Arguments = $"\"{scriptPath}\" {arguments}",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+            };
+            using (var process = Process.Start(start))
+            {
+                if (process == null) throw new InvalidOperationException("无法启动 node 进程。");
+                string stdout = process.StandardOutput.ReadToEnd();
+                string stderr = process.StandardError.ReadToEnd();
+                process.WaitForExit();
+                if (process.ExitCode != 0)
+                    throw new InvalidOperationException($"脚本 {scriptName} 失败（exit {process.ExitCode}）：{stderr.Trim()}");
+                int brace = stdout.IndexOf('{');
+                if (brace < 0) throw new InvalidOperationException($"{scriptName} 输出不是 JSON：{stdout.Trim()}");
+                string json = stdout.Substring(brace);
+                var result = JsonUtility.FromJson<T>(json);
+                if (result == null) throw new InvalidOperationException($"{scriptName} JSON 解析失败。");
+                return result;
+            }
+        }
+
+        /// <summary>
+        /// 异步运行 node 脚本，不阻塞 Unity 主线程。完成后通过 callback 在主线程回调。
+        /// callback 参数：(result, error) —— 成功时 error 为 null，失败时 result 为 null。
+        /// </summary>
+        static void RunNodeScriptAsync<T>(string scriptName, string arguments, Action<T, string> callback) where T : class
+        {
+            string scriptPath = ResolveToolScript(scriptName);
+            if (string.IsNullOrEmpty(scriptPath))
+            {
+                callback(null, "找不到脚本 Tools/" + scriptName);
+                return;
+            }
+            var start = new ProcessStartInfo
+            {
+                FileName = LocateNode(),
+                Arguments = $"\"{scriptPath}\" {arguments}",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+            };
+            var process = new Process { StartInfo = start, EnableRaisingEvents = true };
+            var stdoutBuf = new System.Text.StringBuilder();
+            var stderrBuf = new System.Text.StringBuilder();
+            process.OutputDataReceived += (s, e) => { if (e.Data != null) stdoutBuf.AppendLine(e.Data); };
+            process.ErrorDataReceived += (s, e) => { if (e.Data != null) stderrBuf.AppendLine(e.Data); };
+            process.Exited += (sender, e) =>
+            {
+                try
+                {
+                    string stdout = stdoutBuf.ToString();
+                    string stderr = stderrBuf.ToString();
+                    if (process.ExitCode != 0)
+                    {
+                        string err = $"脚本 {scriptName} 失败（exit {process.ExitCode}）：{stderr.Trim()}";
+                        EditorApplication.delayCall += () => callback(null, err);
+                        return;
+                    }
+                    int brace = stdout.IndexOf('{');
+                    if (brace < 0)
+                    {
+                        EditorApplication.delayCall += () => callback(null, $"{scriptName} 输出不是 JSON：{stdout.Trim()}");
+                        return;
+                    }
+                    string json = stdout.Substring(brace);
+                    var result = JsonUtility.FromJson<T>(json);
+                    if (result == null)
+                    {
+                        EditorApplication.delayCall += () => callback(null, $"{scriptName} JSON 解析失败。");
+                        return;
+                    }
+                    EditorApplication.delayCall += () => callback(result, null);
+                }
+                finally { process.Dispose(); }
+            };
+            try
+            {
+                process.Start();
+                process.BeginOutputReadLine();
+                process.BeginErrorReadLine();
+            }
+            catch (Exception ex)
+            {
+                callback(null, "启动 node 进程失败：" + ex.Message);
+            }
+        }
+
+        static string ResolveToolScript(string name)
+        {
+            string projectRoot = Directory.GetParent(Application.dataPath)?.FullName;
+            if (string.IsNullOrEmpty(projectRoot)) return null;
+            string[] candidates =
+            {
+                Path.GetFullPath(Path.Combine(projectRoot, "..", "..", "Tools", name)),
+                Path.GetFullPath(Path.Combine(projectRoot, "Tools", name)),
+            };
+            foreach (var c in candidates) if (File.Exists(c)) return c;
+            return null;
+        }
+
+        /// <summary>自动把出生点放在可走范围中心。</summary>
+        public static void AutoPlaceSpawn(LYNOOKWorldAuthoring world)
+        {
+            if (world.coordinateRoot == null) throw new InvalidOperationException("缺少房间坐标。");
+            world.WalkBounds(out var center, out _);
+            Vector3 localSpawn = new Vector3(center.x, world.floorHeight, center.y);
+            Vector3 worldSpawn = world.coordinateRoot.TransformPoint(localSpawn);
+            if (!ValidStandingPoint(world, worldSpawn, out string reason))
+                throw new InvalidOperationException("自动出生点无效：" + reason);
+            Undo.RecordObjects(new Object[] { world, world.avatarSpawn }, "Auto place avatar spawn");
+            world.avatarSpawn.position = worldSpawn;
+            world.spawnPlaced = true;
+            Changed(world);
+        }
+
+        [Serializable] public sealed class SceneDownloadResult
+        {
+            public string splat, collider;
+            public long splatBytes, colliderBytes;
+        }
+
+        /// <summary>下载场景输入资产（SPZ + GLB，不下载 pano）到指定目录。</summary>
+        public static SceneDownloadResult DownloadSceneAssets(SceneQueueItem item, string outputDir)
+        {
+            Directory.CreateDirectory(outputDir);
+            var args = $"--sceneId={item.id} --splatUrl=\"{item.splatUrl}\" --colliderUrl=\"{item.colliderMeshUrl}\" --outputDir=\"{outputDir}\"";
+            return RunNodeScript<SceneDownloadResult>("scene-download.mjs", args);
+        }
+
+        public static void DownloadSceneAssetsAsync(SceneQueueItem item, string outputDir, Action<SceneDownloadResult, string> callback)
+        {
+            Directory.CreateDirectory(outputDir);
+            var args = $"--sceneId={item.id} --splatUrl=\"{item.splatUrl}\" --colliderUrl=\"{item.colliderMeshUrl}\" --outputDir=\"{outputDir}\"";
+            RunNodeScriptAsync("scene-download.mjs", args, callback);
+        }
+
+        /// <summary>在系统文件管理器中打开批量录制临时目录（不存在则先创建）。</summary>
+        public static void OpenBatchTempDirectory()
+        {
+            Directory.CreateDirectory(BatchTempRoot);
+            EditorUtility.RevealInFinder(BatchTempRoot);
+        }
+
+        /// <summary>
+        /// 清空批量录制临时目录下的所有子目录与文件（保留 lynook_batch 根目录本身）。
+        /// 批量录制运行时会拒绝清空，避免删掉正在下载/导入的资产。
+        /// 返回释放的字节数。
+        /// </summary>
+        public static long ClearBatchTempDirectory()
+        {
+            if (LYNOOKBatchController.IsRunning)
+                throw new InvalidOperationException("批量录制正在运行，暂不能清空临时目录。");
+            if (!Directory.Exists(BatchTempRoot)) return 0;
+            long freed = 0;
+            foreach (var entry in Directory.GetFileSystemEntries(BatchTempRoot))
+            {
+                try
+                {
+                    if (Directory.Exists(entry))
+                    {
+                        freed += DirSize(new DirectoryInfo(entry));
+                        Directory.Delete(entry, true);
+                    }
+                    else
+                    {
+                        var fi = new FileInfo(entry);
+                        freed += fi.Length;
+                        File.Delete(entry);
+                    }
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning($"清理临时目录失败 {entry}: {e.Message}");
+                }
+            }
+            return freed;
+        }
+
+        static long DirSize(DirectoryInfo dir)
+        {
+            long size = 0;
+            foreach (var fi in dir.GetFiles()) size += fi.Length;
+            foreach (var sub in dir.GetDirectories()) size += DirSize(sub);
+            return size;
+        }
+
+        [Serializable] public sealed class SceneUploadResult
+        {
+            public string worldJsonUrl, previewVideoUrl, rightVideoUrl, collisionUrl, previewUrl;
+        }
+
+        /// <summary>上传录制产物到 Azure，返回各资产的稳定 URL。</summary>
+        public static SceneUploadResult UploadSceneAssets(int sceneId, string folder)
+        {
+            return RunNodeScript<SceneUploadResult>("scene-upload.mjs", $"--sceneId={sceneId} --folder=\"{folder}\"");
+        }
+
+        public static void UploadSceneAssetsAsync(int sceneId, string folder, Action<SceneUploadResult, string> callback)
+        {
+            RunNodeScriptAsync("scene-upload.mjs", $"--sceneId={sceneId} --folder=\"{folder}\"", callback);
+        }
+
+        [Serializable] public sealed class SceneUpdateResult
+        {
+            public bool updated;
+            public int sceneId;
+            public string convertStatus;
+        }
+
+        /// <summary>直接更新 scenes 表的转换状态。</summary>
+        public static SceneUpdateResult UpdateSceneStatus(int sceneId, string status, string worldJsonUrl = null, string previewVideoUrl = null, string error = null)
+        {
+            string args = BuildSceneUpdateArgs(sceneId, status, worldJsonUrl, previewVideoUrl, error);
+            return RunNodeScript<SceneUpdateResult>("scene-update.mjs", args);
+        }
+
+        public static void UpdateSceneStatusAsync(int sceneId, string status, string worldJsonUrl, string previewVideoUrl, string error, Action<SceneUpdateResult, string> callback)
+        {
+            string args = BuildSceneUpdateArgs(sceneId, status, worldJsonUrl, previewVideoUrl, error);
+            RunNodeScriptAsync("scene-update.mjs", args, callback);
+        }
+
+        static string BuildSceneUpdateArgs(int sceneId, string status, string worldJsonUrl, string previewVideoUrl, string error)
+        {
+            string args = $"--sceneId={sceneId} --status={status}";
+            if (status == "ready")
+            {
+                if (string.IsNullOrEmpty(worldJsonUrl)) throw new InvalidOperationException("status=ready 时必须提供 worldJsonUrl。");
+                args += $" --worldJsonUrl=\"{worldJsonUrl}\"";
+                if (!string.IsNullOrEmpty(previewVideoUrl)) args += $" --previewVideoUrl=\"{previewVideoUrl}\"";
+            }
+            else if (status == "failed" && !string.IsNullOrEmpty(error))
+            {
+                args += $" --error=\"{error.Replace("\"", "\\\"")}\"";
+            }
+            return args;
+        }
+
         [Serializable] sealed class Draft
         {
             public int schemaVersion = 1;
-            public string worldId, displayName, gaussian, collision, gaussianSha256, collisionSha256;
+            public string worldId, roomType, displayName, gaussian, collision, gaussianSha256, collisionSha256;
             public bool alignmentConfirmed, spawnPlaced;
             public Pose coordinates, gaussianTransform, cameraRig, spawn;
             public Pose[] points;
@@ -837,6 +1413,7 @@ namespace Lynook.DualScreen.Editor
             public List<Vector2> walkPolygon;
             public float walkAreaThickness;
             public int maximumPoints, recordingSeconds;
+            public string deployTargetPath;
         }
     }
 }

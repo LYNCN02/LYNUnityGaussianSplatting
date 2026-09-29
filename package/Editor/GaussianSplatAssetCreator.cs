@@ -97,6 +97,7 @@ namespace GaussianSplatting.Editor
                 creator.m_InputFile = Path.GetFullPath(inputFile);
                 creator.m_OutputFolder = "Assets/" + fullOutput.Substring(Path.GetFullPath(Application.dataPath).Length + 1).Replace('\\', '/');
                 creator.m_Quality = highQuality ? DataQuality.High : DataQuality.Medium;
+                creator.m_ImportCameras = true;
                 creator.ApplyQualityLevel();
                 creator.CreateAsset();
                 if (!string.IsNullOrEmpty(creator.m_ErrorMessage))

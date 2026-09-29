@@ -8,6 +8,7 @@ namespace Lynook.DualScreen
     public sealed class LYNOOKWorldAuthoring : MonoBehaviour
     {
         public string worldId;
+        public string roomType = "bedroom";
         public string displayName;
         public string workspacePath;
         public string gaussianSourcePath;
@@ -38,6 +39,9 @@ namespace Lynook.DualScreen
         public int recordingSeconds = 10;
         // 可走范围可视化厚度（米），向上挤出形成有体积的板体，便于碰撞和观察时辨识。
         public float walkAreaThickness = 0.05f;
+        // 部署目标路径：Unity 部署工程的 Assets 目录（或其子目录）的绝对路径。
+        // 点击「发布」时把整个房间工作区复制到该路径下，便于一键迁移到运行工程。
+        public string deployTargetPath;
 
         /// <summary>是否使用多边形可走范围。</summary>
         public bool HasWalkPolygon => walkPolygon != null && walkPolygon.Count >= 3;
@@ -74,7 +78,7 @@ namespace Lynook.DualScreen
             }
         }
 
-        static bool PointInPolygon(Vector2 p, List<Vector2> poly)
+        public static bool PointInPolygon(Vector2 p, List<Vector2> poly)
         {
             bool inside = false;
             for (int i = 0, j = poly.Count - 1; i < poly.Count; j = i++)

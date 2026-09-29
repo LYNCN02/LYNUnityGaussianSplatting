@@ -2,6 +2,8 @@
 
 在 `projects/GaussianExample` 中打开 **Tools → LYNOOK → World Studio**。
 
+后台 scene 队列、凭据配置与批量录制对接见 [Scene 生成队列与批量自动录制对接](scene-queue-integration.md)。
+
 ## 操作流程
 
 1. 选择本地 `.ply` / `.spz` 和配套 `.glb`，填写房间名称，点击「导入并创建制作场景」。切换前 Unity 会询问如何处理当前场景的未保存修改。
