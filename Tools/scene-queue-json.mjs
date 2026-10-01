@@ -86,6 +86,14 @@ const rows = await sql`
   LIMIT ${limit}
 `;
 
-const output = { rows };
+// 边界归一化：Neon serverless 驱动把 Postgres 时间列返回为 JS Date（object），
+// 而契约与 C# 端字段都是 ISO 字符串。在校验/输出前统一转成字符串，null 保持 null。
+const normalizedRows = rows.map((row) => ({
+  ...row,
+  createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt,
+  convertQueuedAt: row.convertQueuedAt instanceof Date ? row.convertQueuedAt.toISOString() : row.convertQueuedAt,
+}));
+
+const output = { rows: normalizedRows };
 validate('scene-queue', output);
 process.stdout.write(JSON.stringify(output, null, 2));
