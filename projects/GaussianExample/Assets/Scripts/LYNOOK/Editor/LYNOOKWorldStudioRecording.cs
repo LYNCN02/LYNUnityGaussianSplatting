@@ -23,7 +23,7 @@ namespace Lynook.DualScreen.Editor
         {
             if (EditorApplication.isPlayingOrWillChangePlaymode || EditorApplication.isCompiling)
                 throw new InvalidOperationException("请等待当前运行结束。");
-            if (!previewOnly) Debug.Log(LYNOOKWorldStudioService.ValidateForRecording(world));
+            if (!previewOnly) Debug.Log(LYNOOKWorldPersistence.ValidateForRecording(world));
             else if (world == null || world.cameraRig == null || !world.gaussian.HasValidAsset)
                 throw new InvalidOperationException("请先导入完整房间。");
             var session = world.cameraRig.GetComponent<LYNOOKDualRecordingSession>();
@@ -34,7 +34,7 @@ namespace Lynook.DualScreen.Editor
             // The local workflow has no external encoder prerequisite.
             serialized.FindProperty("outputFormat").enumValueIndex = (int)LYNOOKMovieOutputFormat.H264Mp4;
             serialized.ApplyModifiedProperties();
-            LYNOOKWorldStudioService.SaveDraft(world);
+            LYNOOKWorldPersistence.SaveDraft(world);
             string folder = Path.GetFullPath("Recordings/LYNOOK/WorldStudio/" + world.worldId + "_" + DateTime.UtcNow.ToString("yyyyMMdd_HHmmss_fff"));
             Directory.CreateDirectory(folder + "/mesh");
             File.Copy(world.collisionSourcePath, folder + "/mesh/collision.glb");

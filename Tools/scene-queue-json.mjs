@@ -10,12 +10,13 @@
  * 输出（stdout）：JSON 对象 { "rows": [...] }，每个元素：
  *   { id, name, prompt, model, status, convertStatus, convertTaskId,
  *     operationId, providerSceneId, marbleUrl, thumbnailUrl,
- *     colliderMeshUrl, splatUrl, spzUrls, panoUrl, hdrPanoUrl,
+ *     colliderMeshUrl, splatUrl, spzUrls, splatSemantics, panoUrl, hdrPanoUrl,
  *     worldJsonUrl, previewVideoUrl, error, convertError,
  *     createdAt, convertQueuedAt, roomType, ownerEmail, ownerUsername, ownerName }
  */
 import { createRequire } from 'module';
 import { readFileSync } from 'fs';
+import { validate } from './contracts.mjs';
 
 const UGC_ROOT = '/Users/jammie/Code/ugcplatform';
 
@@ -67,6 +68,7 @@ const rows = await sql`
          s.collider_mesh_url AS "colliderMeshUrl",
          s.metadata->>'splatUrl' AS "splatUrl",
          s.metadata->'spzUrls' AS "spzUrls",
+         s.metadata->'splatSemantics' AS "splatSemantics",
          s.pano_url AS "panoUrl",
          s.metadata->>'hdrPanoUrl' AS "hdrPanoUrl",
          s.world_json_url AS "worldJsonUrl",
@@ -84,4 +86,6 @@ const rows = await sql`
   LIMIT ${limit}
 `;
 
-process.stdout.write(JSON.stringify({ rows }, null, 2));
+const output = { rows };
+validate('scene-queue', output);
+process.stdout.write(JSON.stringify(output, null, 2));

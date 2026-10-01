@@ -23,7 +23,7 @@ namespace Lynook.DualScreen.Editor
             Debug.Log("WORLD_STUDIO_RENDER: validAsset=" + world.gaussian.HasValidAsset + ", validSetup=" + world.gaussian.HasValidRenderSetup
                 + ", active=" + world.gaussian.isActiveAndEnabled
                 + ", splats=" + world.gaussian.asset.splatCount + ", camera=" + world.cameraRig.MainCaptureCamera.transform.position
-                + ", room=" + LYNOOKWorldStudioService.CollisionBounds(world));
+                + ", room=" + LYNOOKWorldInteraction.CollisionBounds(world));
             world.cameraRig.MainCaptureCamera.Render();
             var previous = RenderTexture.active;
             var texture = new Texture2D(world.cameraRig.MainCaptureTexture.width, world.cameraRig.MainCaptureTexture.height, TextureFormat.RGB24, false);
@@ -62,29 +62,29 @@ namespace Lynook.DualScreen.Editor
                 world.activityPoints = new GameObject("Points").transform; world.activityPoints.SetParent(host.transform, false);
                 world.walkSize = new Vector2(6, 6); world.spawnPlaced = true;
                 world.maximumPoints = 5;
-                LYNOOKWorldStudioService.ValidateSettings(world);
-                Assert(LYNOOKWorldStudioService.ValidStandingPoint(world, Vector3.zero, out _), "Valid floor rejected");
-                Assert(!LYNOOKWorldStudioService.ValidStandingPoint(world, new Vector3(0, 1, 0), out _), "Floating point accepted");
-                Assert(!LYNOOKWorldStudioService.ValidStandingPoint(world, new Vector3(3, 0, 0), out _), "Edge point accepted");
-                Assert(LYNOOKWorldStudioService.DirectPathClear(world, Vector3.zero, new Vector3(2, 0, 0)), "Empty path rejected");
+                LYNOOKWorldPersistence.ValidateSettings(world);
+                Assert(LYNOOKWorldInteraction.ValidStandingPoint(world, Vector3.zero, out _), "Valid floor rejected");
+                Assert(!LYNOOKWorldInteraction.ValidStandingPoint(world, new Vector3(0, 1, 0), out _), "Floating point accepted");
+                Assert(!LYNOOKWorldInteraction.ValidStandingPoint(world, new Vector3(3, 0, 0), out _), "Edge point accepted");
+                Assert(LYNOOKWorldInteraction.DirectPathClear(world, Vector3.zero, new Vector3(2, 0, 0)), "Empty path rejected");
                 var wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 wall.transform.SetParent(world.collisionObject.transform, false);
                 wall.transform.localPosition = new Vector3(1, 1, 0);
                 wall.transform.localScale = new Vector3(0.3f, 2, 3);
                 Physics.SyncTransforms();
-                Assert(!LYNOOKWorldStudioService.DirectPathClear(world, Vector3.zero, new Vector3(2, 0, 0)), "Wall crossing accepted");
-                Assert(!LYNOOKWorldStudioService.ValidStandingPoint(world, new Vector3(1, 0, 0), out _), "Occupied capsule accepted");
+                Assert(!LYNOOKWorldInteraction.DirectPathClear(world, Vector3.zero, new Vector3(2, 0, 0)), "Wall crossing accepted");
+                Assert(!LYNOOKWorldInteraction.ValidStandingPoint(world, new Vector3(1, 0, 0), out _), "Occupied capsule accepted");
                 Object.DestroyImmediate(wall);
-                int count = LYNOOKWorldStudioService.GeneratePoints(world);
+                int count = LYNOOKWorldInteraction.GeneratePoints(world);
                 Assert(count == 5, "Unexpected generated point count: " + count);
                 world.pointSpacing = 0;
                 bool rejected = false;
-                try { LYNOOKWorldStudioService.GeneratePoints(world); } catch (InvalidOperationException) { rejected = true; }
+                try { LYNOOKWorldInteraction.GeneratePoints(world); } catch (InvalidOperationException) { rejected = true; }
                 Assert(rejected, "Zero spacing was not rejected");
                 world.pointSpacing = 0.8f;
                 int before = world.activityPoints.childCount;
                 world.walkCenter = new Vector2(100, 100);
-                try { LYNOOKWorldStudioService.GeneratePoints(world); } catch (InvalidOperationException) { }
+                try { LYNOOKWorldInteraction.GeneratePoints(world); } catch (InvalidOperationException) { }
                 Assert(world.activityPoints.childCount == before, "Failure removed existing points");
                 world.walkCenter = Vector2.zero;
 
@@ -103,7 +103,7 @@ namespace Lynook.DualScreen.Editor
                 Assert(exporter.TryWrite(), "Authored export failed");
                 var probe = JsonUtility.FromJson<Probe>(File.ReadAllText(temporary + "/world_config.json"));
                 Assert(probe.avatarSpawn.position.Length == 3 && Mathf.Abs(probe.avatarSpawn.position[0]) < 0.0001f, "Spawn not exported in room coordinates");
-                Assert(probe.activityPoints.Length == 5 && probe.activityPoints[0].type == "stand", "Template points leaked into authored export");
+                Assert(probe.activityPoints.Length == 5 && probe.activityPoints[0].type == LynookActivityTypes.Stand, "Template points leaked into authored export");
                 Assert(probe.assets.gridMap == "", "Missing navigation asset advertised");
                 Debug.Log("LYNOOK_WORLD_STUDIO_CHECKS_PASS: floor, edge, clearance, wall path, generation, invalid settings, failure preservation, transformed-root export, no template points. Video encoding and device alignment are separate checks.");
             }

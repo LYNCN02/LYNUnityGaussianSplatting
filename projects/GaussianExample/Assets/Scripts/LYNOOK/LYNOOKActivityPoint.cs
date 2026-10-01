@@ -9,6 +9,6 @@ namespace Lynook.DualScreen
     [DisallowMultipleComponent]
     public sealed class LYNOOKActivityPoint : MonoBehaviour
     {
-        public string type = "stand";
+        public string type = LynookActivityTypes.Stand;
     }
 }

@@ -273,7 +273,7 @@ namespace Lynook.DualScreen
             }
             catch (System.Exception exception)
             {
-                Debug.LogError($"FFmpeg remux failed for {baseName}: {exception.Message}");
+                Debug.LogException(exception);
                 return false;
             }
         }

@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lynook.local/schemas/scene-update.schema.json",
+  "title": "SceneUpdateResult",
+  "description": "scene-update.mjs 的stdout 契约，与 C# SceneUpdateResult 对应。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["updated", "sceneId", "convertStatus"],
+  "properties": {
+    "updated": { "type": "boolean", "enum": [true] },
+    "sceneId": { "type": "integer" },
+    "convertStatus": {
+      "type": "string",
+      "description": "转换状态；枚举需与 C# LynookConvertStatuses 保持一致。",
+      "enum": ["ready", "failed"]
+    }
+  }
+}

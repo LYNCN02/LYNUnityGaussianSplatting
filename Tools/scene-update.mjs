@@ -11,6 +11,7 @@
  */
 import { createRequire } from 'module';
 import { readFileSync } from 'fs';
+import { validate } from './contracts.mjs';
 
 const UGC_ROOT = '/Users/jammie/Code/ugcplatform';
 const require = createRequire(`${UGC_ROOT}/noop.js`);
@@ -83,7 +84,9 @@ try {
       WHERE id = ${sceneId}
     `;
   }
-  process.stdout.write(JSON.stringify({ updated: true, sceneId, convertStatus: status }));
+  const output = { updated: true, sceneId, convertStatus: status };
+  validate('scene-update', output);
+  process.stdout.write(JSON.stringify(output));
 } catch (e) {
   console.error(e.message);
   process.exit(1);

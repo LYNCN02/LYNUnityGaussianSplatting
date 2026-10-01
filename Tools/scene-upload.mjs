@@ -17,6 +17,7 @@
 import { createRequire } from 'module';
 import { readFileSync, readdirSync, statSync } from 'fs';
 import { join, extname } from 'path';
+import { validate } from './contracts.mjs';
 
 const UGC_ROOT = '/Users/jammie/Code/ugcplatform';
 const require = createRequire(`${UGC_ROOT}/noop.js`);
@@ -143,6 +144,7 @@ try {
     else if (blob === 'collision.glb') result.collisionUrl = url;
     else if (blob === 'preview.png') result.previewUrl = url;
   }
+  validate('scene-upload', result);
   process.stdout.write(JSON.stringify(result));
 } catch (e) {
   console.error(e.message);

@@ -24,6 +24,10 @@
 /projects/**/Temp/*
 /projects/**/UserSettings/*
 /projects/**/obj/*
+
+# LYNOOK 生成产物：房间工作区（由 World Studio 导入时生成）与录制输出
+/projects/**/Assets/LYNOOK/Worlds/*
+/projects/**/Recordings/
 *.sln.DotSettings.user
 *.mp4
 *.mov

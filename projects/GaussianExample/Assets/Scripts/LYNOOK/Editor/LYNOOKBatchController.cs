@@ -13,7 +13,6 @@ namespace Lynook.DualScreen.Editor
         Pending,
         Downloading,
         Importing,
-        Aligning,
         WaitingForAlignment,
         Spawning,
         GeneratingPoints,
@@ -37,7 +36,10 @@ namespace Lynook.DualScreen.Editor
 
     /// <summary>
     /// 批量录制控制器：串行处理勾选的场景任务。
-    /// 流程：下载 → 导入 → 自动对齐 → 自动出生点 → 生成活动点 → 【暂停等用户调相机】 → 录制 → 上传 Azure → 更新数据库。
+    /// 流程：下载 → 导入 → 【暂停调对齐】 → 出生点 → 活动点 → 【暂停调相机】 → 录制 → 上传 Azure → 更新数据库。
+    /// 状态机约定：所有状态写入都经过 <see cref="Transition"/>（唯一入口），
+    /// 进入状态时的默认文案由 <see cref="DefaultMessage"/> 派生；异步/动态细节用 messageOverride。
+    /// WaitingForAlignment / WaitingForCamera 无 handler，仅靠 Continue* 方法推进。
     /// </summary>
     [InitializeOnLoad]
     public static class LYNOOKBatchController
@@ -57,6 +59,20 @@ namespace Lynook.DualScreen.Editor
         public static BatchTaskState CurrentState => currentState;
         public static string CurrentMessage => currentMessage;
         public static IReadOnlyList<BatchTask> Tasks => tasks;
+
+        // 每个可自动推进的状态对应一个 enter handler；等待状态不在表中（保持暂停）。
+        static readonly Dictionary<BatchTaskState, Action<BatchTask>> handlers =
+            new Dictionary<BatchTaskState, Action<BatchTask>>
+            {
+                { BatchTaskState.Pending, BeginDownload },
+                { BatchTaskState.Downloading, BeginDownload },
+                { BatchTaskState.Importing, BeginImport },
+                { BatchTaskState.Spawning, BeginPlaceSpawn },
+                { BatchTaskState.GeneratingPoints, BeginGeneratePoints },
+                { BatchTaskState.Uploading, BeginUpload },
+                { BatchTaskState.UpdatingDB, BeginUpdateDB },
+                { BatchTaskState.Done, t => NextTask() },
+            };
 
         static LYNOOKBatchController()
         {
@@ -91,34 +107,27 @@ namespace Lynook.DualScreen.Editor
             if (!running || currentIndex >= tasks.Count) return;
             var task = tasks[currentIndex];
             if (task.state != BatchTaskState.WaitingForAlignment) return;
-            var world = task.world;
-            Undo.RecordObject(world, "Batch confirm alignment");
-            world.alignmentConfirmed = true;
-            LYNOOKWorldStudioService.Changed(world);
-            task.state = BatchTaskState.Spawning;
-            currentState = BatchTaskState.Spawning;
-            currentMessage = $"[4/8] 自动放置出生点 #{task.item.id} {task.item.name}…";
-            Notify();
+            Undo.RecordObject(task.world, "Batch confirm alignment");
+            task.world.alignmentConfirmed = true;
+            LYNOOKWorldInteraction.Changed(task.world);
+            Transition(task, BatchTaskState.Spawning);
             EditorApplication.delayCall += ProcessCurrent;
         }
 
-        /// <summary>用户调完相机后点击继续，触发录制。</summary>
+        /// <summary>用户调完相机后点击继续，进入录制状态并触发 PlayMode。</summary>
         public static void ContinueFromCamera()
         {
             if (!running || currentIndex >= tasks.Count) return;
             var task = tasks[currentIndex];
             if (task.state != BatchTaskState.WaitingForCamera) return;
-            task.state = BatchTaskState.Recording;
-            currentState = BatchTaskState.Recording;
-            currentMessage = $"[7/8] 录制中 #{task.item.id} {task.item.name}…（PlayMode 自动运行，请勿操作）";
-            Notify();
+            Transition(task, BatchTaskState.Recording);
             try
             {
                 LYNOOKWorldStudioRecording.Start(task.world);
             }
-            catch (Exception e)
+            catch (Exception exception)
             {
-                FailCurrent(e.Message);
+                FailCurrent(exception);
             }
         }
 
@@ -128,70 +137,76 @@ namespace Lynook.DualScreen.Editor
             var task = tasks[currentIndex];
             try
             {
-                switch (task.state)
-                {
-                    case BatchTaskState.Pending:
-                    case BatchTaskState.Downloading:
-                        Download(task);
-                        break;
-                    case BatchTaskState.Importing:
-                        Import(task);
-                        break;
-                    case BatchTaskState.Aligning:
-                        // 跳过自动对齐，进入手动确认暂停点
-                        task.state = BatchTaskState.WaitingForAlignment;
-                        currentState = BatchTaskState.WaitingForAlignment;
-                        currentMessage = $"[3/8] ⏸ 请手动调整 #{task.item.id} {task.item.name} 的地面/对齐，确认后点击「继续批量录制」。";
-                        Notify();
-                        break;
-                    // WaitingForAlignment：等用户点继续，由 ContinueFromAlignment 推进
-                    case BatchTaskState.Spawning:
-                        PlaceSpawn(task);
-                        break;
-                    case BatchTaskState.GeneratingPoints:
-                        GeneratePoints(task);
-                        break;
-                    // WaitingForCamera：等用户点继续，由 ContinueFromCamera 推进
-                    case BatchTaskState.Recording:
-                        // 录制由 PlayMode 驱动，OnPlayModeStateChanged 处理
-                        break;
-                    case BatchTaskState.Uploading:
-                        Upload(task);
-                        break;
-                    case BatchTaskState.UpdatingDB:
-                        UpdateDB(task);
-                        break;
-                    case BatchTaskState.Done:
-                        NextTask();
-                        break;
-                }
+                // 无 handler 的状态（两个等待态、Recording 由 PlayMode 驱动）保持不动。
+                if (handlers.TryGetValue(task.state, out var handler)) handler(task);
             }
-            catch (Exception e)
+            catch (Exception exception)
             {
-                FailCurrent(e.Message);
+                FailCurrent(exception);
             }
         }
 
-        static void Download(BatchTask task)
+        // ── 状态写入唯一入口 ──
+        static void Transition(BatchTask task, BatchTaskState next, string messageOverride = null)
         {
-            task.state = BatchTaskState.Downloading;
-            currentState = BatchTaskState.Downloading;
+            task.state = next;
+            currentState = next;
+            currentMessage = messageOverride ?? DefaultMessage(task, next);
+            Notify();
+        }
+
+        // ── 各状态默认文案（唯一来源；步骤号与实际进度对应） ──
+        static string DefaultMessage(BatchTask task, BatchTaskState state)
+        {
+            string tag = $"#{task.item.id} {task.item.name}";
+            switch (state)
+            {
+                case BatchTaskState.Pending:
+                case BatchTaskState.Downloading:
+                    return $"[1/8] 下载资产 {tag}（SPZ + GLB）…";
+                case BatchTaskState.Importing:
+                    return $"[2/8] 导入房间 {tag}…";
+                case BatchTaskState.WaitingForAlignment:
+                    return $"[3/8] ⏸ 请手动调整 {tag} 的地面/对齐，确认后点击「继续批量录制」。";
+                case BatchTaskState.Spawning:
+                    return $"[4/8] 自动放置出生点 {tag}…";
+                case BatchTaskState.GeneratingPoints:
+                    return $"[5/8] 生成活动点 {tag}…";
+                case BatchTaskState.WaitingForCamera:
+                    return $"[6/8] ⏸ 请手动调整 {tag} 的相机取景，完成后点击「继续批量录制」。";
+                case BatchTaskState.Recording:
+                    return $"[7/8] 录制中 {tag}…（PlayMode 自动运行，请勿操作）";
+                case BatchTaskState.Uploading:
+                    return $"[8/8] 上传产物到 Azure {tag}…";
+                case BatchTaskState.UpdatingDB:
+                    return $"[8/8] 更新数据库 {tag}…";
+                case BatchTaskState.Done:
+                    return $"✅ 完成 {tag}。";
+                default:
+                    return currentMessage ?? "";
+            }
+        }
+
+        // ── enter handlers ──
+
+        static void BeginDownload(BatchTask task)
+        {
             task.inputDir = Path.Combine(LYNOOKWorldStudioService.BatchTempRoot, task.item.id.ToString());
             string splatPath = Path.Combine(task.inputDir, "room.spz");
             string glbPath = Path.Combine(task.inputDir, "collision.glb");
-            // 已下载过的资产直接复用，不重复下载
-            if (File.Exists(splatPath) && File.Exists(glbPath) && new FileInfo(splatPath).Length > 0 && new FileInfo(glbPath).Length > 0)
+            // 已下载过的资产直接复用，不重复下载（用消息 override 保留缓存明细）。
+            if (File.Exists(splatPath) && File.Exists(glbPath) &&
+                new FileInfo(splatPath).Length > 0 && new FileInfo(glbPath).Length > 0)
             {
-                currentMessage = $"[1/8] 已有缓存，跳过下载 #{task.item.id} {task.item.name}（SPZ {FormatSize(new FileInfo(splatPath).Length)} + GLB {FormatSize(new FileInfo(glbPath).Length)}）";
-                Notify();
-                task.state = BatchTaskState.Importing;
+                string cached = $"[1/8] 已有缓存，跳过下载 #{task.item.id} {task.item.name}" +
+                    $"（SPZ {FormatSize(new FileInfo(splatPath).Length)} + GLB {FormatSize(new FileInfo(glbPath).Length)}）";
+                Transition(task, BatchTaskState.Importing, cached);
                 EditorApplication.delayCall += ProcessCurrent;
                 return;
             }
-            currentMessage = $"[1/8] 下载资产 #{task.item.id} {task.item.name}（SPZ + GLB）…";
-            Notify();
+            Transition(task, BatchTaskState.Downloading);
             Directory.CreateDirectory(task.inputDir);
-            LYNOOKWorldStudioService.DownloadSceneAssetsAsync(task.item, task.inputDir, (result, err) =>
+            LYNOOKSceneService.DownloadSceneAssetsAsync(task.item, task.inputDir, (result, err) =>
             {
                 if (err != null) { FailCurrent(err); return; }
                 if (string.IsNullOrEmpty(result.splat) || string.IsNullOrEmpty(result.collider))
@@ -199,49 +214,71 @@ namespace Lynook.DualScreen.Editor
                     FailCurrent("下载结果缺少 splat 或 collider。");
                     return;
                 }
-                currentMessage = $"[1/8] 下载完成：SPZ {FormatSize(result.splatBytes)} + GLB {FormatSize(result.colliderBytes)}";
-                Notify();
-                task.state = BatchTaskState.Importing;
+                string done = $"[1/8] 下载完成：SPZ {FormatSize(result.splatBytes)} + GLB {FormatSize(result.colliderBytes)}";
+                Transition(task, BatchTaskState.Importing, done);
                 EditorApplication.delayCall += ProcessCurrent;
             });
         }
 
-        static void Import(BatchTask task)
+        static void BeginImport(BatchTask task)
         {
-            task.state = BatchTaskState.Importing;
-            currentState = BatchTaskState.Importing;
-            currentMessage = $"[2/8] 导入房间 #{task.item.id} {task.item.name}…";
-            Notify();
+            Transition(task, BatchTaskState.Importing);
             string splatPath = Path.Combine(task.inputDir, "room.spz");
             string glbPath = Path.Combine(task.inputDir, "collision.glb");
-            task.world = LYNOOKWorldStudioService.Import(splatPath, glbPath, task.item.name, task.item.roomType, true);
-            task.state = BatchTaskState.Aligning;
+            // 数据库里的 splatSemantics（metricScaleFactor / groundPlaneOffset）随导入传入，
+            // 创建高斯与配套 GLB 时按官方口径做①米制缩放 + ②地面归零 + ③绕 X 轴 180°
+            //（GLB 手性转换已由 glTF 导入器烘焙，外层 z scale 不乘 -1）。
+            var semantics = task.item.splatSemantics;
+            task.world = LYNOOKWorldSceneBuilder.Import(splatPath, glbPath, task.item.name, task.item.roomType, true, semantics);
+            if (semantics != null && semantics.metricScaleFactor > 0f)
+                Debug.Log($"[LYNOOKBatchController] #{task.item.id} {task.item.name} 应用 Marble SPZ 语义变换（高斯+GLB）：metricScaleFactor={semantics.metricScaleFactor}, groundPlaneOffset={semantics.groundPlaneOffset}, X轴180°=true");
+            // 导入后直接进入手动对齐暂停点（不再需要 Aligning 中转状态）。
+            Transition(task, BatchTaskState.WaitingForAlignment);
+        }
+
+        static void BeginPlaceSpawn(BatchTask task)
+        {
+            Transition(task, BatchTaskState.Spawning);
+            LYNOOKWorldInteraction.AutoPlaceSpawn(task.world);
+            Transition(task, BatchTaskState.GeneratingPoints);
             EditorApplication.delayCall += ProcessCurrent;
         }
 
-        static void PlaceSpawn(BatchTask task)
+        static void BeginGeneratePoints(BatchTask task)
         {
-            task.state = BatchTaskState.Spawning;
-            currentState = BatchTaskState.Spawning;
-            currentMessage = $"[4/8] 自动放置出生点 #{task.item.id} {task.item.name}…";
-            Notify();
-            LYNOOKWorldStudioService.AutoPlaceSpawn(task.world);
-            task.state = BatchTaskState.GeneratingPoints;
-            EditorApplication.delayCall += ProcessCurrent;
-        }
-
-        static void GeneratePoints(BatchTask task)
-        {
-            task.state = BatchTaskState.GeneratingPoints;
-            currentState = BatchTaskState.GeneratingPoints;
-            currentMessage = $"[5/8] 生成活动点 #{task.item.id} {task.item.name}…";
-            Notify();
-            LYNOOKWorldStudioService.GeneratePoints(task.world);
-            task.state = BatchTaskState.WaitingForCamera;
-            currentState = BatchTaskState.WaitingForCamera;
-            currentMessage = $"[6/8] ⏸ 请手动调整 #{task.item.id} {task.item.name} 的相机取景，完成后点击「继续批量录制」。";
-            Notify();
+            Transition(task, BatchTaskState.GeneratingPoints);
+            LYNOOKWorldInteraction.GeneratePoints(task.world);
+            Transition(task, BatchTaskState.WaitingForCamera);
             // 暂停，等用户点继续
+        }
+
+        static void BeginUpload(BatchTask task)
+        {
+            string recordingFolder = FindRecordingFolder(task.world.worldId);
+            if (string.IsNullOrEmpty(recordingFolder)) throw new InvalidOperationException("未找到录制输出目录。");
+            LYNOOKSceneService.UploadSceneAssetsAsync(task.item.id, recordingFolder, (result, err) =>
+            {
+                if (err != null) { FailCurrent(err); return; }
+                task.uploadResult = result;
+                Transition(task, BatchTaskState.UpdatingDB);
+                EditorApplication.delayCall += ProcessCurrent;
+            });
+        }
+
+        static void BeginUpdateDB(BatchTask task)
+        {
+            var upload = task.uploadResult;
+            LYNOOKSceneService.UpdateSceneStatusAsync(
+                task.item.id, LynookConvertStatuses.Ready,
+                worldJsonUrl: upload.worldJsonUrl,
+                previewVideoUrl: upload.previewVideoUrl,
+                error: null,
+                callback: (result, err) =>
+                {
+                    if (err != null) { FailCurrent(err); return; }
+                    Transition(task, BatchTaskState.Done);
+                    EditorApplication.delayCall += ProcessCurrent;
+                });
         }
 
         static void OnPlayModeStateChanged(PlayModeStateChange state)
@@ -251,7 +288,7 @@ namespace Lynook.DualScreen.Editor
             if (task.state != BatchTaskState.Recording) return;
             if (state == PlayModeStateChange.EnteredEditMode)
             {
-                // 录制完成，校验产物后上传
+                // 录制完成，校验产物后进入上传
                 EditorApplication.delayCall += () =>
                 {
                     try
@@ -261,15 +298,12 @@ namespace Lynook.DualScreen.Editor
                             throw new InvalidOperationException("未找到录制输出目录。");
                         if (!ValidateRecording(recordingFolder))
                             throw new InvalidOperationException("录制产物不完整。");
-                        task.state = BatchTaskState.Uploading;
-                        currentState = BatchTaskState.Uploading;
-                        currentMessage = $"[8/8] 上传产物到 Azure #{task.item.id} {task.item.name}…";
-                        Notify();
+                        Transition(task, BatchTaskState.Uploading);
                         EditorApplication.delayCall += ProcessCurrent;
                     }
-                    catch (Exception e)
+                    catch (Exception exception)
                     {
-                        FailCurrent(e.Message);
+                        FailCurrent(exception);
                     }
                 };
             }
@@ -303,39 +337,9 @@ namespace Lynook.DualScreen.Editor
             return true;
         }
 
-        static void Upload(BatchTask task)
-        {
-            string recordingFolder = FindRecordingFolder(task.world.worldId);
-            if (string.IsNullOrEmpty(recordingFolder)) throw new InvalidOperationException("未找到录制输出目录。");
-            LYNOOKWorldStudioService.UploadSceneAssetsAsync(task.item.id, recordingFolder, (result, err) =>
-            {
-                if (err != null) { FailCurrent(err); return; }
-                task.uploadResult = result;
-                task.state = BatchTaskState.UpdatingDB;
-                currentState = BatchTaskState.UpdatingDB;
-                currentMessage = $"[8/8] 更新数据库 #{task.item.id} {task.item.name}…";
-                Notify();
-                EditorApplication.delayCall += ProcessCurrent;
-            });
-        }
+        // ── 失败 / 收尾 ──
 
-        static void UpdateDB(BatchTask task)
-        {
-            var upload = task.uploadResult;
-            LYNOOKWorldStudioService.UpdateSceneStatusAsync(
-                task.item.id, "ready",
-                worldJsonUrl: upload.worldJsonUrl,
-                previewVideoUrl: upload.previewVideoUrl,
-                error: null,
-                callback: (result, err) =>
-                {
-                    if (err != null) { FailCurrent(err); return; }
-                    task.state = BatchTaskState.Done;
-                    currentMessage = $"✅ 完成 #{task.item.id} {task.item.name}。";
-                    Notify();
-                    EditorApplication.delayCall += ProcessCurrent;
-                });
-        }
+        static void FailCurrent(Exception exception) => FailCurrent(exception.Message);
 
         static void FailCurrent(string error)
         {
@@ -346,7 +350,7 @@ namespace Lynook.DualScreen.Editor
             currentMessage = $"❌ 失败 #{task.item.id} {task.item.name}：{error}";
             Debug.LogError($"[LYNOOKBatchController] {currentMessage}");
             // 失败也写数据库（异步，不阻塞）
-            LYNOOKWorldStudioService.UpdateSceneStatusAsync(task.item.id, "failed", null, null, error, (_, __) => { });
+            LYNOOKSceneService.UpdateSceneStatusAsync(task.item.id, LynookConvertStatuses.Failed, null, null, error, (_, __) => { });
             Notify();
             NextTask();
         }

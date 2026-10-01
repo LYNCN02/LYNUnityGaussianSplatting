@@ -96,7 +96,7 @@ namespace Lynook.DualScreen
                     return new ActivityPoint
                     {
                         id = point.name,
-                        type = meta != null && !string.IsNullOrWhiteSpace(meta.type) ? meta.type : "stand",
+                        type = meta != null && !string.IsNullOrWhiteSpace(meta.type) ? meta.type : LynookActivityTypes.Stand,
                         transform = PlacementFrom(point, coordinateRoot),
                         approachPosition = VectorArray(coordinateRoot.InverseTransformPoint(point.position)),
                         weight = 1,
@@ -188,7 +188,7 @@ namespace Lynook.DualScreen
             }
             catch (Exception exception)
             {
-                Debug.LogError("LYNOOK world_config.json export failed: " + exception.Message);
+                Debug.LogException(exception);
                 return false;
             }
         }

@@ -8,7 +8,7 @@ namespace Lynook.DualScreen
     public sealed class LYNOOKWorldAuthoring : MonoBehaviour
     {
         public string worldId;
-        public string roomType = "bedroom";
+        public string roomType = LynookRoomTypes.Bedroom;
         public string displayName;
         public string workspacePath;
         public string gaussianSourcePath;

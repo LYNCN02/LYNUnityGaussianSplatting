@@ -1,0 +1,76 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lynook.local/schemas/scene-queue.schema.json",
+  "title": "SceneQueueResult",
+  "description": "scene-queue-json.mjs 的 stdout 契约，也是 C# SceneQueueResult 的镜像。{ rows } 外层信封。",
+  "type": "object",
+  "required": ["rows"],
+  "additionalProperties": false,
+  "properties": {
+    "rows": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/sceneQueueItem" }
+    }
+  },
+  "definitions": {
+    "sceneQueueItem": {
+      "type": "object",
+      "description": "数据库 scenes 表一行，字段名为 Postgres 别名（camelCase），与 C# LYNOOKWorldStudioService.SceneQueueItem 一一对应。",
+      "required": ["id"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "integer" },
+        "name": { "type": ["string", "null"] },
+        "prompt": { "type": ["string", "null"] },
+        "model": { "type": ["string", "null"] },
+        "status": { "type": ["string", "null"] },
+        "convertStatus": { "type": ["string", "null"] },
+        "convertTaskId": { "type": ["string", "null"] },
+        "roomType": {
+          "type": ["string", "null"],
+          "description": "房间类型；枚举值需与 C# LynookRoomTypes.All 保持一致。",
+          "enum": [
+            "bedroom", "living_room", "kitchen", "bathroom",
+            "dining_room", "office", "study", "balcony", "corridor", "other", null
+          ]
+        },
+        "operationId": { "type": ["string", "null"] },
+        "providerSceneId": { "type": ["string", "null"] },
+        "marbleUrl": { "type": ["string", "null"] },
+        "thumbnailUrl": { "type": ["string", "null"] },
+        "colliderMeshUrl": { "type": ["string", "null"] },
+        "splatUrl": { "type": ["string", "null"] },
+        "panoUrl": { "type": ["string", "null"] },
+        "hdrPanoUrl": { "type": ["string", "null"] },
+        "worldJsonUrl": { "type": ["string", "null"] },
+        "previewVideoUrl": { "type": ["string", "null"] },
+        "error": { "type": ["string", "null"] },
+        "convertError": { "type": ["string", "null"] },
+        "createdAt": { "type": ["string", "null"] },
+        "convertQueuedAt": { "type": ["string", "null"] },
+        "ownerEmail": { "type": ["string", "null"] },
+        "ownerUsername": { "type": ["string", "null"] },
+        "ownerName": { "type": ["string", "null"] },
+        "spzUrls": {
+          "type": ["string", "object", "null"],
+          "description": "Postgres jsonb 原样输出时是对象；C# 端 JsonUtility 不支持字典，按字符串透传解析。"
+        },
+        "splatSemantics": {
+          "oneOf": [
+            { "$ref": "#/definitions/splatSemantics" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "splatSemantics": {
+      "type": "object",
+      "description": "Marble SPZ 语义，与 C# SplatSemantics 对应：米制缩放 + 地面归零。",
+      "additionalProperties": false,
+      "properties": {
+        "metricScaleFactor": { "type": "number" },
+        "groundPlaneOffset": { "type": "number" }
+      }
+    }
+  }
+}

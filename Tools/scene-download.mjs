@@ -12,6 +12,7 @@
 import { createRequire } from 'module';
 import { readFileSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
+import { validate } from './contracts.mjs';
 
 const UGC_ROOT = '/Users/jammie/Code/ugcplatform';
 const require = createRequire(`${UGC_ROOT}/noop.js`);
@@ -108,6 +109,7 @@ try {
     result.pano = dest;
     result.panoBytes = size;
   }
+  validate('scene-download', result);
   process.stdout.write(JSON.stringify(result));
 } catch (e) {
   console.error(e.message);

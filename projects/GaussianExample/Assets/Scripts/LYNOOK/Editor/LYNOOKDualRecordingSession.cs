@@ -412,7 +412,7 @@ namespace Lynook.DualScreen
             }
             catch (System.Exception exception)
             {
-                Debug.LogError($"Failed to create the physical preview: {exception.Message}");
+                Debug.LogException(exception);
                 return false;
             }
         }
@@ -482,7 +482,7 @@ namespace Lynook.DualScreen
             }
             catch (System.Exception exception)
             {
-                Debug.LogError($"Failed to start FFmpeg: {exception.Message}");
+                Debug.LogException(exception);
                 return null;
             }
         }

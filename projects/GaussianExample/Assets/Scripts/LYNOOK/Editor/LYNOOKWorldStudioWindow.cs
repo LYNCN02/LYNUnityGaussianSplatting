@@ -17,10 +17,10 @@ namespace Lynook.DualScreen.Editor
     {
         const string LayoutPath = "Assets/Scripts/LYNOOK/Editor/LYNOOKWorldStudioWindow.uxml";
         [SerializeField] string gaussianFile, glbFile, roomTitle;
-        [SerializeField] string roomType = "bedroom";
+        [SerializeField] string roomType = LynookRoomTypes.Bedroom;
         [SerializeField] bool highQuality;
-        static readonly List<string> RoomTypes = new List<string> { "bedroom", "living_room", "kitchen", "bathroom", "dining_room", "office", "study", "balcony", "corridor", "other" };
-        static readonly List<string> PointTypes = new List<string> { "stand", "sit", "seat", "look", "walk", "interact" };
+        static readonly List<string> RoomTypes = new List<string>(LynookRoomTypes.All);
+        static readonly List<string> PointTypes = new List<string>(LynookActivityTypes.All);
         LYNOOKWorldAuthoring world;
         VisualElement controls;
         Label status;
@@ -124,7 +124,7 @@ namespace Lynook.DualScreen.Editor
             var title = new TextField("房间名称") { value = roomTitle ?? "" };
             title.RegisterValueChangedCallback(e => roomTitle = e.newValue);
             files.Add(title);
-            int typeIndex = RoomTypes.IndexOf(roomType ?? "bedroom");
+            int typeIndex = RoomTypes.IndexOf(roomType ?? LynookRoomTypes.Bedroom);
             if (typeIndex < 0) typeIndex = 0;
             var typeField = new PopupField<string>("房间类型", RoomTypes, typeIndex);
             typeField.RegisterValueChangedCallback(e => roomType = e.newValue);
@@ -145,7 +145,7 @@ namespace Lynook.DualScreen.Editor
                 {
                     try
                     {
-                        world = LYNOOKWorldStudioService.Import(gaussianFile, glbFile, roomTitle, roomType, highQuality);
+                        world = LYNOOKWorldSceneBuilder.Import(gaussianFile, glbFile, roomTitle, roomType, highQuality);
                         Rebuild();
                         SetStatus("导入完成。请先显示 GLB，检查对齐，再点击地面确认高度。");
                     }
@@ -221,7 +221,7 @@ namespace Lynook.DualScreen.Editor
             var tempRow = Row(batchFold);
             Button(tempRow, "打开临时目录", () =>
             {
-                try { LYNOOKWorldStudioService.OpenBatchTempDirectory(); }
+                try { LYNOOKSceneService.OpenBatchTempDirectory(); }
                 catch (Exception e) { Debug.LogException(e); SetStatus(e.Message); }
             });
             Button(tempRow, "清空临时目录", () =>
@@ -232,7 +232,7 @@ namespace Lynook.DualScreen.Editor
                     if (!EditorUtility.DisplayDialog("确认清空临时目录",
                         $"将删除批量录制下载的所有临时资产（SPZ/GLB）：\n{root}\n\n此操作不可恢复，是否继续？",
                         "确定清空", "取消")) return;
-                    long freed = LYNOOKWorldStudioService.ClearBatchTempDirectory();
+                    long freed = LYNOOKSceneService.ClearBatchTempDirectory();
                     SetStatus($"临时目录已清空，释放 {freed / 1024.0 / 1024.0:F1} MB。");
                 }
                 catch (Exception e) { Debug.LogException(e); SetStatus(e.Message); }
@@ -248,11 +248,11 @@ namespace Lynook.DualScreen.Editor
             {
                 Undo.RecordObjects(world.collisionObject.GetComponentsInChildren<Renderer>(true), "Toggle collision preview");
                 Undo.RecordObject(world, "Toggle collision preview");
-                LYNOOKWorldStudioService.SetCollisionVisible(world, e.newValue);
+                LYNOOKWorldInteraction.SetCollisionVisible(world, e.newValue);
             }));
             alignment.Add(visibility);
             var alignRow = Row(alignment);
-            Button(alignRow, "定位房间", () => LYNOOKWorldStudioService.Frame(world));
+            Button(alignRow, "定位房间", () => LYNOOKWorldInteraction.Frame(world));
             Button(alignRow, "调整高斯对齐", () => Select(world.gaussian.transform));
             Button(alignRow, "整体位置 / 尺度", () => Select(world.coordinateRoot));
             var gaussianTransform = new Foldout { text = "高斯相对 GLB 的位置 / 旋转 / 缩放", value = false };
@@ -269,7 +269,7 @@ namespace Lynook.DualScreen.Editor
                 Undo.RecordObject(world.gaussian.transform, "Align Gaussian rotation");
                 world.gaussian.transform.localEulerAngles = e.newValue;
                 Undo.RecordObject(world, "Invalidate alignment confirmation"); world.alignmentConfirmed = false;
-                LYNOOKWorldStudioService.Changed(world);
+                LYNOOKWorldInteraction.Changed(world);
             }));
             gaussianTransform.Add(angles);
             Button(gaussianTransform, "高斯绕 X 轴转 180°", () =>
@@ -277,7 +277,7 @@ namespace Lynook.DualScreen.Editor
                 Undo.RecordObject(world.gaussian.transform, "Rotate Gaussian coordinates");
                 world.gaussian.transform.Rotate(180, 0, 0, Space.Self);
                 Undo.RecordObject(world, "Invalidate alignment confirmation"); world.alignmentConfirmed = false;
-                LYNOOKWorldStudioService.Changed(world); RefreshPreview();
+                LYNOOKWorldInteraction.Changed(world); RefreshPreview();
             });
             Property(alignment, "roomType", "房间类型");
             Property(alignment, "alignmentConfirmed", "我已检查高斯与 GLB 对齐");
@@ -285,9 +285,9 @@ namespace Lynook.DualScreen.Editor
             Button(floorRow, "自动识别地面范围", () => Run(() =>
             {
                 Undo.RecordObject(world, "Auto detect floor");
-                LYNOOKWorldStudioService.AutoDetectFloor(world);
+                LYNOOKFloorDetection.AutoDetectFloor(world);
                 Undo.RecordObject(world, "Invalidate alignment confirmation"); world.alignmentConfirmed = false;
-                LYNOOKWorldStudioService.Changed(world); Rebuild();
+                LYNOOKWorldInteraction.Changed(world); Rebuild();
                 string shape = world.HasWalkPolygon ? $"{world.walkPolygon.Count} 边形" : $"{world.walkSize.x:F2} × {world.walkSize.y:F2} m";
                 SetStatus($"已自动识别地面：高度 {world.floorHeight:F3}，范围 {shape}。");
             }));
@@ -317,7 +317,7 @@ namespace Lynook.DualScreen.Editor
                 if (world.walkPolygon.Count == 0) throw new InvalidOperationException("没有可撤销的顶点。");
                 Undo.RecordObject(world, "Remove polygon vertex");
                 world.walkPolygon.RemoveAt(world.walkPolygon.Count - 1);
-                LYNOOKWorldStudioService.Changed(world); Rebuild();
+                LYNOOKWorldInteraction.Changed(world); Rebuild();
                 SetStatus($"已撤销顶点，剩余 {world.walkPolygon.Count} 个。");
             }));
             var polyRow2 = Row(polyFold);
@@ -325,7 +325,7 @@ namespace Lynook.DualScreen.Editor
             {
                 Undo.RecordObject(world, "Clear walk polygon");
                 world.walkPolygon.Clear();
-                LYNOOKWorldStudioService.Changed(world); Rebuild();
+                LYNOOKWorldInteraction.Changed(world); Rebuild();
                 SetStatus("已清空多边形，改用矩形范围。");
             }));
             Help(polyFold, "点选添加顶点：在 Scene 视图依次点击地面，形成闭合多边形（≥3 个顶点即生效）。Esc 结束添加。");
@@ -360,7 +360,7 @@ namespace Lynook.DualScreen.Editor
             Property(points, "floorTolerance", "地面高度容差");
             Button(points, "生成站立活动点", () =>
             {
-                int count = LYNOOKWorldStudioService.GeneratePoints(world);
+                int count = LYNOOKWorldInteraction.GeneratePoints(world);
                 Rebuild(); SetStatus("已生成 " + count + " 个站立点。旧点位可通过撤销恢复。");
             });
             var pointsActionRow = Row(points);
@@ -374,7 +374,7 @@ namespace Lynook.DualScreen.Editor
                 for (int i = world.activityPoints.childCount - 1; i >= 0; i--)
                     Undo.DestroyObjectImmediate(world.activityPoints.GetChild(i).gameObject);
                 Undo.CollapseUndoOperations(group);
-                LYNOOKWorldStudioService.Changed(world); Rebuild();
+                LYNOOKWorldInteraction.Changed(world); Rebuild();
                 SetStatus("已删除全部 " + count + " 个活动点。");
             }));
             foreach (Transform point in world.activityPoints)
@@ -383,7 +383,7 @@ namespace Lynook.DualScreen.Editor
                 var row = Row(points);
                 var label = new Label(point.name); label.AddToClassList("point-label"); row.Add(label);
                 var meta = captured.GetComponent<LYNOOKActivityPoint>();
-                string currentType = meta != null && !string.IsNullOrWhiteSpace(meta.type) ? meta.type : "stand";
+                string currentType = meta != null && !string.IsNullOrWhiteSpace(meta.type) ? meta.type : LynookActivityTypes.Stand;
                 int typeIdx = PointTypes.IndexOf(currentType);
                 var ptField = new PopupField<string>(PointTypes, typeIdx < 0 ? 0 : typeIdx);
                 ptField.style.width = 100;
@@ -393,19 +393,19 @@ namespace Lynook.DualScreen.Editor
                     if (m == null) { m = captured.gameObject.AddComponent<LYNOOKActivityPoint>(); }
                     Undo.RecordObject(m, "Change point type");
                     m.type = e.newValue;
-                    LYNOOKWorldStudioService.Changed(world);
+                    LYNOOKWorldInteraction.Changed(world);
                 }));
                 row.Add(ptField);
                 Button(row, "调整", () => Select(captured));
-                Button(row, "删除", () => { Undo.DestroyObjectImmediate(captured.gameObject); LYNOOKWorldStudioService.Changed(world); Rebuild(); });
+                Button(row, "删除", () => { Undo.DestroyObjectImmediate(captured.gameObject); LYNOOKWorldInteraction.Changed(world); Rebuild(); });
             }
             Help(points, "每个活动点可选择类型（stand / sit / seat / look / walk / interact），导出时写入 world_config.json 的 activityPoints[].type。");
 
             var output = Section("6 · 保存和录制", true);
             Property(output, "recordingSeconds", "录制时长（秒）");
             var outputRow = Row(output);
-            Button(outputRow, "保存制作草稿", () => { LYNOOKWorldStudioService.SaveDraft(world); SetStatus("已保存制作场景与 world_draft.json。"); });
-            Button(outputRow, "检查全部点位", () => SetStatus(LYNOOKWorldStudioService.ValidateForRecording(world)));
+            Button(outputRow, "保存制作草稿", () => { LYNOOKWorldPersistence.SaveDraft(world); SetStatus("已保存制作场景与 world_draft.json。"); });
+            Button(outputRow, "检查全部点位", () => SetStatus(LYNOOKWorldPersistence.ValidateForRecording(world)));
             Button(output, "录制双屏并导出本地房间包", () => LYNOOKWorldStudioRecording.Start(world)).AddToClassList("primary");
             Button(output, "打开制作文件夹", () => EditorUtility.RevealInFinder(Path.GetFullPath(world.workspacePath)));
             Button(output, "打开录制输出文件夹", () => EditorUtility.RevealInFinder(Path.GetFullPath("Recordings/LYNOOK/WorldStudio")));
@@ -420,7 +420,7 @@ namespace Lynook.DualScreen.Editor
             {
                 Undo.RecordObject(world, "Set deploy target path");
                 world.deployTargetPath = e.newValue;
-                LYNOOKWorldStudioService.Changed(world);
+                LYNOOKWorldInteraction.Changed(world);
             }));
             deployPathRow.Add(deployPath);
             Button(deployPathRow, "浏览…", () =>
@@ -431,7 +431,7 @@ namespace Lynook.DualScreen.Editor
             Button(deployFold, "一键发布（复制房间到部署工程）", () => Run(() =>
             {
                 SetStatus("正在发布，请等待…");
-                string result = LYNOOKWorldStudioService.Deploy(world, world.deployTargetPath);
+                string result = LYNOOKWorldPersistence.Deploy(world, world.deployTargetPath);
                 SetStatus(result);
             })).AddToClassList("primary");
             Help(deployFold, "把当前房间的完整工作区（高斯资产、场景、配置）复制到目标路径，并附带最近一次录制产物（双屏视频、world_config.json 等）。目标需是另一个 Unity 工程的 Assets 目录，由该工程自行导入。");
@@ -444,7 +444,7 @@ namespace Lynook.DualScreen.Editor
             {
                 try
                 {
-                    var items = LYNOOKWorldStudioService.FetchSceneQueue(50);
+                    var items = LYNOOKSceneService.FetchSceneQueue(50);
                     sceneQueueItems = items.ToList();
                     // 保留已勾选的 id，清除已不存在的
                     var validIds = new HashSet<int>(sceneQueueItems.Select(i => i.id));
@@ -548,7 +548,7 @@ namespace Lynook.DualScreen.Editor
             rig.CaptureRig.rotation = view.camera.transform.rotation * Quaternion.Inverse(relative);
             rig.CaptureRig.position += view.camera.transform.position - rig.SharedEyeWorldPosition;
             rig.ApplyConfiguration();
-            LYNOOKWorldStudioService.Changed(world);
+            LYNOOKWorldInteraction.Changed(world);
             RefreshPreview();
         }
 
@@ -569,7 +569,7 @@ namespace Lynook.DualScreen.Editor
         {
             if (world == null || world.coordinateRoot == null || world.collisionObject == null)
                 throw new InvalidOperationException("请先导入房间 GLB。");
-            if (mode != 1) LYNOOKWorldStudioService.ValidateSettings(world);
+            if (mode != 1) LYNOOKWorldPersistence.ValidateSettings(world);
             hasPickMarker = false;
             pickingMode = mode;
             wantsMouseMove = true;
@@ -629,7 +629,7 @@ namespace Lynook.DualScreen.Editor
             if (current.type == EventType.MouseMove) HandleUtility.Repaint();
             if (current.type == EventType.Layout) HandleUtility.AddDefaultControl(GUIUtility.GetControlID(FocusType.Passive));
             Ray ray = HandleUtility.GUIPointToWorldRay(current.mousePosition);
-            bool gotHit = LYNOOKWorldStudioService.Raycast(world, ray, out var hit);
+            bool gotHit = LYNOOKWorldInteraction.Raycast(world, ray, out var hit);
             bool isFloor = gotHit && Mathf.Abs(Vector3.Dot(hit.normal, world.coordinateRoot.up)) >= Mathf.Cos(25f * Mathf.Deg2Rad);
             if (current.type == EventType.Repaint)
             {
@@ -708,9 +708,9 @@ namespace Lynook.DualScreen.Editor
                         if (isFloor)
                         {
                             Undo.RecordObject(world, "Set floor height from collision");
-                            LYNOOKWorldStudioService.AutoDetectFloorFromPoint(world, hit.point);
+                            LYNOOKFloorDetection.AutoDetectFloorFromPoint(world, hit.point);
                             if (polygonInfo != null) polygonInfo.text = $"当前 {world.walkPolygon.Count} 边形，边界 {world.walkSize.x:F2} × {world.walkSize.y:F2} m。";
-                            LYNOOKWorldStudioService.Changed(world);
+                            LYNOOKWorldInteraction.Changed(world);
                         }
                         SetPickMessage($"{(isFloor ? "已从点击点提取连通地面范围" : "命中墙面/陡坡，未修改地面")}\n碰撞体：{hit.collider.name}；房间坐标：{local:F3}；坡度：{slope:F1}°；法线：{hit.normal:F2}");
                         view.Repaint();
@@ -718,7 +718,7 @@ namespace Lynook.DualScreen.Editor
                     }
                     else if (pickingMode == 2)
                     {
-                        LYNOOKWorldStudioService.PlaceSpawn(world, hit);
+                        LYNOOKWorldInteraction.PlaceSpawn(world, hit);
                         pickingMode = 0; Rebuild(); SetStatus("出生地已设置。可以继续调整，或保存制作草稿。");
                     }
                     else if (pickingMode == 4)
@@ -727,9 +727,9 @@ namespace Lynook.DualScreen.Editor
                         Undo.RecordObject(world, "Add polygon vertex");
                         Vector3 local = world.coordinateRoot.InverseTransformPoint(hit.point);
                         // 第一个顶点同步地面高度
-                        if (world.walkPolygon.Count == 0) LYNOOKWorldStudioService.AutoDetectFloorFromPoint(world, hit.point);
+                        if (world.walkPolygon.Count == 0) LYNOOKFloorDetection.AutoDetectFloorFromPoint(world, hit.point);
                         world.walkPolygon.Add(new Vector2(local.x, local.z));
-                        LYNOOKWorldStudioService.Changed(world);
+                        LYNOOKWorldInteraction.Changed(world);
                         // 不退出点选模式，允许继续添加
                         SetStatus($"已添加第 {world.walkPolygon.Count} 个顶点，继续点击或 Esc 结束。");
                         view.Repaint();
@@ -737,18 +737,18 @@ namespace Lynook.DualScreen.Editor
                     else
                     {
                         if (!world.spawnPlaced) throw new InvalidOperationException("先设置出生地。");
-                        if (!LYNOOKWorldStudioService.ValidStandingPoint(world, hit.point, out string reason)) throw new InvalidOperationException(reason);
-                        if (!LYNOOKWorldStudioService.DirectPathClear(world, world.avatarSpawn.position, hit.point)) throw new InvalidOperationException("出生地到该位置存在障碍。");
+                        if (!LYNOOKWorldInteraction.ValidStandingPoint(world, hit.point, out string reason)) throw new InvalidOperationException(reason);
+                        if (!LYNOOKWorldInteraction.DirectPathClear(world, world.avatarSpawn.position, hit.point)) throw new InvalidOperationException("出生地到该位置存在障碍。");
                         var point = new GameObject("stand_" + Guid.NewGuid().ToString("N").Substring(0, 6));
                         point.transform.SetParent(world.activityPoints, false);
                         point.transform.position = hit.point;
                         point.transform.rotation = world.avatarSpawn.rotation;
                         var meta = point.AddComponent<LYNOOKActivityPoint>();
-                        meta.type = "stand";
+                        meta.type = LynookActivityTypes.Stand;
                         Undo.RegisterCreatedObjectUndo(point, "Add activity point");
                         pickingMode = 0; Rebuild(); SetStatus("活动点已添加。");
                     }
-                    if (pickingMode != 4) LYNOOKWorldStudioService.Changed(world);
+                    if (pickingMode != 4) LYNOOKWorldInteraction.Changed(world);
                 });
             }
             if (current.type == EventType.MouseMove) view.Repaint();

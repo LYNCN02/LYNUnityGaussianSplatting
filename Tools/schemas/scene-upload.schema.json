@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lynook.local/schemas/scene-upload.schema.json",
+  "title": "SceneUploadResult",
+  "description": "scene-upload.mjs 的 stdout 契约，与 C# SceneUploadResult 对应。每个 URL 为 Azure 稳定地址（不含 SAS）。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["worldJsonUrl", "previewVideoUrl", "rightVideoUrl", "collisionUrl", "previewUrl"],
+  "properties": {
+    "worldJsonUrl": { "type": "string", "format": "uri" },
+    "previewVideoUrl": { "type": "string", "format": "uri" },
+    "rightVideoUrl": { "type": "string", "format": "uri" },
+    "collisionUrl": { "type": "string", "format": "uri" },
+    "previewUrl": { "type": "string", "format": "uri" }
+  }
+}
