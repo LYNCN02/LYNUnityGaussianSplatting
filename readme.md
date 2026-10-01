@@ -34,16 +34,24 @@ This fork keeps the upstream Gaussian Splatting implementation and adds the foll
 
 No additional component or renderer setting is required. Set the Unity Camera **Projection** mode to **Orthographic**, and the Gaussian Splat renderer selects the correct shader path automatically.
 
+### World Studio room authoring and batch recording
+
+- Adds the **Tools → LYNOOK → World Studio** window for importing `.ply` / `.spz` with a matching `.glb`, aligning them, detecting the floor/walkable area, setting an avatar spawn and activity points, and recording dual-screen output. See the [World Studio guide](docs/lynook-world-studio.md).
+- Adds batch recording (the window's `8 · 批量录制` section): pull pending scenes, download, import, auto-place spawn/points, record, upload to Azure, and write back to the database. Floor/alignment and camera framing are manual pause points; atomic task claiming is not implemented yet. See the [scene queue integration](docs/scene-queue-integration.md).
+- The code is split into two assemblies, **LYNOOK.Runtime** and **LYNOOK.Editor**, with the editor logic split into six responsibility services behind a thin `LYNOOKWorldStudioService` facade.
+- Room type, activity point type, and convert status strings are centralized in `LynookRoomTypes` / `LynookActivityTypes` / `LynookConvertStatuses`.
+- Adds C#⇄Node contracts: JSON Schemas under `Tools/schemas` plus `Tools/contracts.mjs`; the Node tools validate their output against the schema before writing to stdout.
+
 ### `GaussianExample` project updates
 
 - Upgraded the example project from Unity `2022.3.47f1` to Unity `6000.3.16f1`.
 - Updated `00_RoomPreview_Perspective` with a `CameraRig` containing the main camera and a `SideCamera`. The side camera uses the `SideC` tag and targets Display 2.
 - Added `CameraRigTransformCopy` and its custom Inspector. Select `CameraRig` and click **复制 Transform JSON** to copy the rig, main-camera, and side-camera transforms as JSON.
 - Updated the sample camera, Gaussian Splat asset reference, renderer settings, and scene transforms for the LYNOOK test setup.
-- Added the UniVRM/UniGLTF `v0.131.0`, Unity Recorder, Multiplayer Center, Vector Graphics, Accessibility, and Adaptive Performance package dependencies used by the example project.
+- Added the UniVRM/UniGLTF `v0.130.x` three-package setup, Unity Recorder, Multiplayer Center, Vector Graphics, Accessibility, and Adaptive Performance package dependencies used by the example project.
 - Re-serialized the scene and project settings for Unity 6, including the `SideC` tag and current rendering/project configuration.
 
-Large LYNOOK test assets and recordings are not stored in Git. Files such as `*.spz`, `*.glb`, `*.mp4`, and `*.mov` must be supplied locally when required by the example scene.
+Large LYNOOK test assets and recordings are not stored in Git. Files such as `*.spz`, `*.glb`, `*.mp4`, and `*.mov` must be supplied locally when required by the example scene. Generated `Assets/LYNOOK/Worlds/` workspaces and `Recordings/` are ignored by Git.
 
 ## Usage
 
@@ -84,10 +92,24 @@ locations.
 The rendering takes game object transformation matrix into account; the official gaussian splat models seem to be all rotated by about
 -160 degrees around X axis, and mirrored around Z axis, so in the sample scene the object has such a transform set up.
 
-Additional documentation:
+## Documentation index / 文档目录
 
-* [Render Pipeline Integration](/docs/render-pipeline-integration.md)
-* [Editing Splats](/docs/splat-editing.md)
+All documentation lives in [`docs/`](docs/) unless otherwise noted.
+
+**LYNOOK toolchain / LYNOOK 工具链**
+
+- [World Studio 本地房间制作器](docs/lynook-world-studio.md) — window workflow, generated files, assemblies/services, deploy, known issues.
+- [Scene 生成队列与批量自动录制对接](docs/scene-queue-integration.md) — database/queue, credentials, batch recording implementation status and source locations.
+
+**Gaussian Splatting (upstream) / 高斯能力**
+
+- [Render Pipeline Integration](docs/render-pipeline-integration.md) — BiRP / URP / HDRP setup and rendering interactions.
+- [Editing Splats](docs/splat-editing.md) — manual splat editing, cutouts, and merging.
+
+**In-project guides / 工程内说明**
+
+- [LYNOOK room scenes guide](projects/GaussianExample/Assets/LYNOOK/Scenes/README.md) — the four room scenes and their naming.
+- [DualScreen Recorder README](projects/GaussianExample/Assets/LYNOOK/DualScreenRecorder/README.md) — dual-screen recorder setup.
 
 _That's it!_
 
