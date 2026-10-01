@@ -1,6 +1,6 @@
 # Scene 生成队列与批量自动录制对接
 
-核对日期：2026-09-26。来源为本机 `/Users/jammie/Code/ugcplatform` 工作区源码；未验证线上部署或实际数据库/队列连接。本文件供 ugasu（本仓库）开发批量录制使用。
+ugcplatform 侧核对日期：2026-09-26，来源为本机 `/Users/jammie/Code/ugcplatform` 工作区源码；未验证线上部署或实际数据库/队列连接。ugasu 侧（批量录制实现）更新于 2026-10-01。本文件供 ugasu（本仓库）开发批量录制使用。
 
 ## 1. 当前可用入口与边界
 
@@ -8,7 +8,7 @@
 - 管理员页面：`/admin/scene-queue`；接口：`GET /api/admin/scene-queue`。
 - 无人值守读取可由受信任的服务端进程使用 `DATABASE_URL` 查询；现有管理员接口要求 Clerk 管理员登录，**没有独立的队列查询 API key**。
 - `ugcplatform` 中没有 Azure Queue 的入队/领取实现，无法从该仓库确认真实队列名、Queue endpoint、消息格式、租约或死信策略。数据库快照不等于 Azure 队列长度。
-- 当前 ugasu World Studio 仍是本地导入、编辑、录制流程；本文件是对接说明，不代表已接通自动录制。
+- ugasu World Studio 已在「8 · 批量录制」实现批量流程（见第 6 节）：拉取队列只读展示、勾选后串行 下载 → 导入 → 人工对齐 → 出生点/活动点 → 人工取景 → 录制 → 上传 → 回写。**尚未实现任务原子领取**，多进程仍可能重复处理同一任务。
 
 ## 2. key、凭据位置与用途
 
@@ -178,17 +178,30 @@ WHERE id = $2;
 
 未来切换到 callback 时，需先在 `proxy.ts` 豁免该精确路由并配置共享 token。
 
-## 6. ugasu 批量自动录制开发建议（尚未实现）
+## 6. ugasu 批量录制：实现现状与待办
 
-1. 单独的受信任调度服务读取候选，并与现有后台约定唯一领取方。若沿用 Azure Queue，先取得真实队列名/endpoint、消息 schema、visibility timeout、续租、删除/重试/死信协议；不要建立第二个互相抢活的消费者。
-2. 若采用数据库领取，设计事务内 `FOR UPDATE SKIP LOCKED` + 条件状态更新，返回领取成功的任务；补上 lease、owner、attempt、超时恢复及最大重试次数。只允许持有有效 lease 的 attempt 回写，不仅靠 `convert_task_id` 文本。这里没有提供可立即运行的生产认领 SQL，因为现有表没有这些租约字段。
-3. worker 以 `scene_id + attempt` 建独立目录，下载 SPZ/PLY 与 GLB，生成本地输入清单并保存哈希。先串行驱动一个带图形环境的 Unity Editor，避免并行争用同一项目/录制器。
-4. 复用 [World Studio](lynook-world-studio.md) 导入和录制链路。输入资产目前不提供已经审核的相机取景、出生点、活动范围和活动点；需设计自动生成/质量门槛或人工审核步骤，不能仅凭两份资源 URL 就承诺可交付房间。
-5. 录制输出沿用 `main.mp4 / right.mp4 / world_config.json / mesh/collision.glb` 及制作快照。`preview_only` 不是交付；`needs_review` 仅说明必要文件存在。完整解码、双路帧数/时间、JSON 资源引用、出生点/坐标一致性检查通过后再进入交付。
-6. 先上传全部文件到 Azure，确认上传成功后，直接 `UPDATE scenes` 把 `convert_status` 置为 `ready`，写入 `world_json_url` 和 `preview_video_url`。数据库即唯一权威源，前端刷新即可见。`preview_video_url` 放主路 `main.mp4`，侧路 `right.mp4` 同目录上传，双路引用写入 `world_config.json` 内部。
-7. worker 重启应能恢复或隔离未完成 attempt；超时、下载失败、Unity 崩溃、上传成功但数据库更新失败分别处理。防止因数据库回写短暂失败而重复整段录制。已删除场景的行不存在时不继续无限重试。
+入口为 World Studio 窗口的「8 · 批量录制」，控制器是 [LYNOOKBatchController.cs](file:///Users/jammie/UnityGaussianSplatting-main/projects/GaussianExample/Assets/Scripts/LYNOOK/Editor/LYNOOKBatchController.cs)。状态写入统一经过 `Transition`，各状态文案集中派生；每个自动状态有一个 enter handler，两个等待态无 handler 保持暂停。
 
-上线验收至少覆盖：只读查询、两个 worker 竞争只认领一次、过期输入 URL、Unity 中断恢复、输出可授权下载和完整解码、数据库回写后前端刷新状态正确。本文未执行这些运行时验证。
+### 已实现（2026-10-01）
+
+1. **拉取队列（只读）**：`LYNOOKSceneService.FetchSceneQueue` 经 `Tools/scene-queue-json.mjs` 查 `convert_status = pending`，在窗口列出并勾选；不做任何认领或状态修改。
+2. **下载**：`BeginDownload` 把 SPZ + GLB 下到系统临时目录 `lynook_batch/<scene_id>/`，已下载且非空时复用缓存。
+3. **导入**：`BeginImport` 复用 [World Studio](lynook-world-studio.md) 的导入链路，带上数据库的 `splatSemantics`（米制缩放 / 地面归零 / 绕 X 轴 180°）。
+4. **人工对齐**：导入后进入 `WaitingForAlignment` 暂停；用户调好地面/对齐后点「继续」，置 `alignmentConfirmed`。
+5. **自动出生点与活动点**：`BeginPlaceSpawn` / `BeginGeneratePoints` 自动放置出生点并生成站立活动点。
+6. **人工取景**：进入 `WaitingForCamera` 暂停；用户调好相机后点「继续」。
+7. **录制**：进入 PlayMode 由现有 Recorder 链路产出 `main.mp4 / right.mp4 / world_config.json / mesh/collision.glb / preview.png`，回到 EditMode 后校验必要文件非空。
+8. **上传与回写**：`BeginUpload` 经 `scene-upload.mjs` 上传 Azure，`BeginUpdateDB` 经 `scene-update.mjs` 直接 `UPDATE scenes` 为 `ready`（写 `world_json_url`、`preview_video_url`）。任一阶段失败都经 `FailCurrent` 记日志、回写 `failed`，并继续下一个任务。
+9. **契约校验**：四个 Node 脚本在 stdout 前都用 `Tools/contracts.mjs` 按对应 JSON Schema 校验，防止 C# 模型与脚本输出漂移。
+
+### 尚未实现 / 待办
+
+1. **任务原子领取（最高优先）**：当前只在窗口勾选、没有租约，多个 Unity 实例会重复处理同一任务。需要单独的受信任调度服务作为唯一领取方；若沿用 Azure Queue，先取得真实队列名/endpoint、消息 schema、visibility timeout、续租、删除/重试/死信协议。
+2. 若采用数据库领取，设计事务内 `FOR UPDATE SKIP LOCKED` + 条件状态更新，补 lease、owner、attempt、超时恢复及最大重试次数；只允许持有有效 lease 的 attempt 回写。现有表没有这些租约字段。
+3. 自动化质量门槛：目前地面/对齐与取景靠人工确认；若要去掉人工，需先有可校验的自动对齐与取景判据，不能仅凭两份资源 URL 就承诺可交付房间。
+4. worker 重启恢复：超时、下载失败、Unity 崩溃、上传成功但数据库更新失败需分别处理，防止因回写短暂失败而重复整段录制；已删除场景的行不应无限重试。
+
+上线验收至少覆盖：只读查询、两个 worker 竞争只处理一次（依赖任务领取落地）、过期输入 URL、Unity 中断恢复、输出可授权下载和完整解码、数据库回写后前端刷新状态正确。当前批量功能经过 batchmode 静态编译验证，尚未执行真实端到端批量运行验证。
 
 ## 7. 源码定位
 
@@ -201,5 +214,14 @@ WHERE id = $2;
 - `src/app/api/scenes/[id]/route.ts`、`src/lib/worldlabs.ts`：生成进度、pending 标记、资产字段映射。
 - `src/app/api/scenes/[id]/convert-callback/route.ts`：转换状态回写。
 - `src/lib/scene-storage.ts`、`src/lib/azure-vrm.ts`：Blob 路径和签名。
+
+以本仓库 ugasu（`UnityGaussianSplatting`）为根：
+
+- `projects/GaussianExample/Assets/Scripts/LYNOOK/Editor/LYNOOKBatchController.cs`：批量状态机（`Transition` 单写入入口 + 各 enter handler）。
+- `…/LYNOOKSceneService.cs`：拉队列、下载/上传、状态回写、临时目录管理。
+- `…/LYNOOKNodeProcessRunner.cs`：定位并同步/异步运行 Node 脚本。
+- `…/LYNOOKWorldSceneBuilder.cs` / `LYNOOKWorldInteraction.cs` / `LYNOOKFloorDetection.cs`：导入搭建、点位生成、地面识别。
+- `Tools/scene-queue-json.mjs` / `scene-download.mjs` / `scene-upload.mjs` / `scene-update.mjs`：Node 侧查询与传输。
+- `Tools/contracts.mjs` + `Tools/schemas/*.schema.json`：C#⇄Node 输出契约与输出前校验。
 
 ugasu 相关说明：[本地房间制作器](lynook-world-studio.md)、[双屏录制](../projects/GaussianExample/Assets/LYNOOK/DualScreenRecorder/README.md)。
