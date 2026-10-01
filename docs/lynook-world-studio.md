@@ -32,10 +32,11 @@
 
 录制结果位于项目下 `Recordings/LYNOOK/WorldStudio/<房间编号>_<录制时间>/`：
 
-- `main.mp4`、`right.mp4`：H.264，30 fps，默认主屏 1280×800、侧屏 720×1280。
+- 交付录制：录制器先产出中间 MP4，再由 ffmpeg 做 H.264 流拷贝 remux 为 `main.mov` / `right.mov`（30 fps，主屏 1280×800、侧屏 720×1280），随后删除中间 MP4。`world_config.json` 中两路视频均引用 `.mov`。
 - `world_config.json`：当前房间的出生点、活动点和实际相机投影；取景预览不输出该文件。
-- `mesh/collision.glb`、`preview.png`、制作与相机快照。
-- `status.json`：完整文件存在时标记 `needs_review`；只录取景时为 `preview_only`；中断或缺文件时为 `failed`。
+- `mesh/collision.glb`、首帧预览 `preview.png`（正面）与 `preview_right.png`（侧面），制作与相机快照。
+- 本地交付另生成双屏拼接 `preview.mov`；**批量录制不生成拼接 MOV**。
+- `status.json`：完整交付文件存在时标记 `needs_review`；只录 2 秒取景预览（产物为 `main.mp4 / right.mp4`，不 remux、不删 mp4）时为 `preview_only`；中断或缺文件时为 `failed`。各状态均带 `source`（batch 时带 `batchSceneId`）。
 
 `needs_review` 只说明必要文件已生成且非空，不代表视频内容、完整解码、硬件标定或设备播放已经通过。录制输出独立保存，重录不覆盖上一份结果。
 
@@ -45,8 +46,9 @@
 
 World Studio 的 C# 代码在 `Assets/Scripts/LYNOOK/`，拆为两个显式程序集：
 
-- **LYNOOK.Runtime**（[LYNOOK.Runtime.asmdef](file:///Users/jammie/UnityGaussianSplatting-main/projects/GaussianExample/Assets/Scripts/LYNOOK/LYNOOK.Runtime.asmdef)，引用 `GaussianSplatting`）：运行时组件与共享常量。
+- **LYNOOK.Runtime**（[LYNOOK.Runtime.asmdef](file:///Users/jammie/UnityGaussianSplatting-main/projects/GaussianExample/Assets/Scripts/LYNOOK/LYNOOK.Runtime.asmdef)，引用 `GaussianSplatting`、`Unity.Recorder.Editor`）：会被序列化进场景/预制件的组件、录制会话与共享常量。
   - 组件：`LYNOOKWorldAuthoring`（房间制作数据与 Gizmos）、`LYNOOKActivityPoint`、`LYNOOKDualCameraRig`、`LYNOOKWorldExportSettings`、`CameraRigTransformCopy`，以及各录制测试场景的 Motion 脚本。
+  - 录制会话：`LYNOOKDualRecordingSession` / `LYNOOKCornerBoxRecordingSession`（挂在场景相机 Rig 上，PlayMode 下驱动 Unity Recorder）与 `LYNOOKRecordingWorldExporter`。它们对 `UnityEditor.Recorder` 的引用全部在 `#if UNITY_EDITOR` 内——**这些类不能放进 Editor-only 程序集**：Unity 禁止把 editor asmdef 里的 MonoBehaviour `AddComponent`/序列化到场景，否则 AddComponent 静默返回 null 并报 `Can't add script behaviour ... because it is an editor script`。
   - 常量：`LynookRoomTypes`、`LynookActivityTypes`、`LynookConvertStatuses`，提供 `All / IsValid / Normalize`，是 UI 下拉枚举与默认值的唯一来源。
 - **LYNOOK.Editor**（[LYNOOK.Editor.asmdef](file:///Users/jammie/UnityGaussianSplatting-main/projects/GaussianExample/Assets/Scripts/LYNOOK/Editor/LYNOOK.Editor.asmdef)，引用 Runtime、`GaussianSplattingEditor`、`Unity.Recorder.Editor`、`Unity.Timeline`）：编辑器窗口、导入/录制、以及按职责划分的静态服务。
   - [LYNOOKWorldStudioService.cs](file:///Users/jammie/UnityGaussianSplatting-main/projects/GaussianExample/Assets/Scripts/LYNOOK/Editor/LYNOOKWorldStudioService.cs)：薄外观，仅保留 `WorkspaceRoot` / `BatchTempRoot` 常量、`Current` 属性和全部数据传输对象（DTO）。
@@ -71,8 +73,8 @@ Node 侧工具在仓库 `Tools/`：`scene-queue-json.mjs`、`scene-download.mjs`
 
 - 使用现有 Unity Editor + Recorder，仍需图形环境。本地流程之外，已实现批量录制：拉取队列、下载、导入、自动出生点/活动点、上传 Azure、回写数据库；其中**地面/对齐与相机取景为人工暂停确认**，尚未全自动。
 - 支持配套 GLB 的点击与碰撞检查，不自动重建碰撞网格、不自动估计高斯和 GLB 的配准关系。
-- 第一版针对单层、近似水平的地面。生成器检查边界、局部地面高度、法线、角色胶囊净空和候选点之间的直线路径。
-- 不生成椅子/床等动作点，也不声称已实现导航寻路。由于现有设备端角色采用直线移动，生成器要求出生点和各活动点之间可直接通行；正式导出前重新检查手动修改的点。
+- 第一版针对单层、近似水平的地面。生成器检查边界、局部地面高度、法线与角色胶囊净空；活动点也只校验地面与净空。
+- 不生成椅子/床等动作点。**不要求出生点与各活动点之间直线路径无遮挡**：点可位于墙后/需绕行处，正式导出前重新检查手动修改点的地面与净空；点间通行统一交给设备端运行时寻路算法兜底，编辑器侧不做可达性判定。
 - 不输出虚构的 `grid_map.json`；本地流程导出的 `assets.gridMap` 为空。
 - 高斯可独立校正方向，GLB 沿用 UniGLTF 导入坐标。导出的相机与点位相对于房间坐标根节点；GLB 原文件随包复制。
 - 角色线框尺寸用于几何检查，实际角色大小、动作、遮挡、视频投影到 GLB 的效果以及双屏接缝仍需人工检查和设备验证。
@@ -125,22 +127,56 @@ Node 侧工具在仓库 `Tools/`：`scene-queue-json.mjs`、`scene-download.mjs`
 
 `GaussianSplatRenderer.HasValidAsset` 第一项就是 `m_Asset != null`（Unity 重载 `==`），fake-null 直接让整个校验失败；`OnEnable → CreateResourcesForAsset` 也因 `!HasValidAsset` 提前 return，GPU 缓冲不建。用户手动重开场景或点 Inspector 任意字段时，Unity 内部对引用做了一次重新解析，native side 才被加载，渲染恢复。
 
-#### 修复
+#### 修复（2026-10-01 加固：资产 ready 前不激活渲染器）
 
-导入流程（现位于 [LYNOOKWorldSceneBuilder.cs](file:///Users/jammie/UnityGaussianSplatting-main/projects/GaussianExample/Assets/Scripts/LYNOOK/Editor/LYNOOKWorldSceneBuilder.cs) 的 `Import`）在 `SaveScene` 之后加了 fake-null 修复块：
+早期方案是「先激活、SaveScene 后再补救赋值」，但批量录制中仍偶现渲染器带病继续、后续步骤空引用。当前 [LYNOOKWorldSceneBuilder.cs](file:///Users/jammie/UnityGaussianSplatting-main/projects/GaussianExample/Assets/Scripts/LYNOOK/Editor/LYNOOKWorldSceneBuilder.cs) 的 `Import` 严格按加载顺序执行：
 
-1. `AssetDatabase.Refresh(ForceSynchronousImport)`：强制 Unity 把所有 pending import（包括 `SaveScene` 刚触发的 `Room.unity` 导入）跑完。
-2. `AssetDatabase.LoadAssetAtPath<GaussianSplatAsset>(assetPath)`：重新拿一个 native side 真正加载好的实例。
-3. 校验新实例的 `posData/otherData/colorData/shData` 都非 null 后，重新赋值给 `gaussian.m_Asset`，替换之前的 fake-null 实例。
-4. `m_PrevAsset` 仍是 null，下一帧 `Update` 检测到 `m_PrevAsset != m_Asset` 触发 `DisposeResourcesForAsset + CreateResourcesForAsset`，自动重建 GPU 缓冲。
+1. 创建 `Gaussian Visual` 后立刻 `SetActive(false)`，在 inactive 状态下 `AddComponent<GaussianSplatRenderer>` 并赋好 `m_Asset` 与全部 shader/compute shader 引用——此时不触发 `OnEnable/Update`。
+2. 场景其余部分（GLB 碰撞、相机 Rig、地面识别、取景）照常搭建，第一次 `SaveScene`（物体仍 inactive，`m_Asset` 的 GUID/fileID 引用已写入场景）。
+3. 有界同步重试（最多 4 轮）：每轮 `Refresh(ForceSynchronousImport)` → 重新导入 5 个 `.bytes` 子资产 → 重新导入主 `.asset` → `LoadAssetAtPath` 重新加载并赋给 renderer，以 **`gaussian.HasValidAsset`**（非 fake-null + `splatCount>0` + 版本匹配 + pos/other/color/sh 全在）作为唯一就绪判据。
+4. 就绪后才 `splatObject.SetActive(true)`：`OnEnable` 同步执行，`EnsureMaterials / 注册渲染系统 / CreateResourcesForAsset` 一次成功；紧接着校验 `HasValidRenderSetup`（GPU 缓冲已建立），失败直接抛错中止导入，批量任务会被记为失败而不是带病继续。
+5. 第二次 `SaveScene` 把 active 状态持久化进 `Room.unity`（第一次保存时物体还是 inactive，否则重开场景高斯不显示）。
+6. 二次保存后若 `m_Asset` 再次退回 fake-null，重新 `Refresh + LoadAssetAtPath` 赋值；渲染器已激活，下一帧 `Update` 走 `m_PrevAsset != m_Asset` 热切换路径自动重建 GPU 缓冲。
 
-修复块放在 `SaveScene` 之后是关键：`SaveScene` 触发的 `Room.unity` 导入也会进 AssetDatabase 队列，必须等它一起完成才能保证 native side 一致。
+重试循环放在 `SaveScene` 之后是关键：`SaveScene` 触发的 `Room.unity` 导入也会进 AssetDatabase 队列，必须等它一起完成才能保证 native side 一致。
 
 定位线索：`ReferenceEquals(m_Asset, null) = false` 但 Unity 重载 `m_Asset != null = false`，说明 C# 引用在、Unity native side 不在——这是 Unity 经典 fake-null。
 
 #### 兜底
 
-如果极少数情况下 Refresh + LoadAssetAtPath 之后仍 fake-null，会输出 `Debug.LogWarning` 提示。用户在 Inspector 中切换 Render Mode 下拉框可触发 Unity 重新解析引用，等同于本路径的兜底手动版。
+4 轮同步刷新后仍不就绪时直接抛 `InvalidOperationException` 中止本次导入（批量录制中任务记为 Failed 并完整记录堆栈），不再让渲染器带病进入后续地面/录制步骤。若在二次保存之后才出现 fake-null，会输出 `Debug.LogWarning` 并尝试热切换赋值；用户在 Inspector 中切换 Render Mode 下拉框也可触发 Unity 重新解析引用，作为手动兜底。
+
+### 2026-10-01：重构后批量导入空引用——录制会话类被误移入 Editor-only 程序集
+
+#### 现象
+
+批量录制 `[2/8] 导入房间` 抛 `NullReferenceException`，定位在 `session.SetReferences(rig, null)`。表面与高斯 fake-null 同类，但异常点在相机 Rig 搭建阶段（早于 SaveScene 与高斯就绪循环），与资产加载无关。
+
+#### 根因
+
+架构重构把 `LYNOOKDualRecordingSession.cs` / `LYNOOKCornerBoxRecordingSession.cs` / `LYNOOKRecordingWorldExporter.cs` git mv 进了 `Editor/`（LYNOOK.Editor，`includePlatforms: [Editor]`）。Unity **禁止把 Editor-only 程序集中的 MonoBehaviour 挂到场景物体**：`AddComponent<T>()` 不抛异常、静默返回 null，Console 另有一条 `Can't add script behaviour 'LYNOOKDualRecordingSession' because it is an editor script. To attach a script it needs to be outside the 'Editor' folder.`，下一行对返回值调方法即空引用。
+
+#### 修复
+
+- 三个文件 git mv 回 [Scripts/LYNOOK/](file:///Users/jammie/UnityGaussianSplatting-main/projects/GaussianExample/Assets/Scripts/LYNOOK)（`.meta` 一并移动，GUID 不变，旧场景/预制件序列化引用不断）。
+- [LYNOOK.Runtime.asmdef](file:///Users/jammie/UnityGaussianSplatting-main/projects/GaussianExample/Assets/Scripts/LYNOOK/LYNOOK.Runtime.asmdef) 增加 `Unity.Recorder.Editor` 引用；三个类对 Recorder 的使用全部在 `#if UNITY_EDITOR` 块内，Player 构建时这些代码被剔除，editor 程序集引用同步移除。
+- `Import` 对 `rig` 与 `session` 加显式空值校验，再次发生时给出可定位原因的错误信息而非裸空引用。
+
+规则：**凡要序列化进场景/预制件、或运行时被 AddComponent 的 MonoBehaviour，必须位于非 Editor-only 程序集**；编辑器专属逻辑通过 `#if UNITY_EDITOR` 隔离。
+
+### 2026-10-01：批量运行期间收敛录制入口，并在 JSON 标记来源
+
+#### 背景
+
+批量录制停在 `[6/8] 等待相机` 时，若不点「继续批量录制」、而去点「6 · 保存和录制」里的独立录制按钮，录制虽成功，但批量任务仍停在 WaitingForCamera；批量控制器回编辑模式的上传回调要求 `task.state == Recording` 才接管（[LYNOOKBatchController.cs](file:///Users/jammie/UnityGaussianSplatting-main/projects/GaussianExample/Assets/Scripts/LYNOOK/Editor/LYNOOKBatchController.cs)），导致产物不上传、数据库不更新。
+
+#### 修复
+
+1. **入口收敛**：`Rebuild` 以统一上下文开关 `batchActive = LYNOOKBatchController.IsRunning` 为准，批量进行期间用 `DisableForBatch` 置灰「录制 2 秒取景预览」和「录制双屏并导出本地房间包」两个按钮，tooltip 指明改走「8 · 批量录制」的「继续批量录制」。`SetEnabled(false)` 在 UIElements 层即拦截点击，不靠各回调自行判断。
+2. **JSON 体现来源**：录制来源经 `LYNOOKWorldStudioRecording.StartBatch / Start / StartPreview` → SessionState（Pending→Active）→ `LYNOOKDualRecordingSession.BeginRecording` → `LYNOOKRecordingWorldExporter.Capture` 单链路透传，无旁路：
+   - `world_config.json` 的 `recording` 段新增 `"source": "batch" | "manual"`，batch 时再带 `"batchSceneId": <Postgres scenes.id>`；
+   - `status.json` 在 recording / needs_review / failed 各状态同样带 `source`（batch 时带 `batchSceneId`）。
+3. `Capture` 校验前置于 `recorderController.StartRecording()`，world 导出不合法时不会先开始录制。
 
 #### 同期相关修复
 

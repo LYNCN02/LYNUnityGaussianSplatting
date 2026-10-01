@@ -6,13 +6,14 @@
  *
  * 上传文件清单（相对 folder）：
  *   world_config.json  → scenes/{id}/world_config.json
- *   main.mp4           → scenes/{id}/main.mp4
- *   right.mp4          → scenes/{id}/right.mp4
+ *   main.mov           → scenes/{id}/main.mov
+ *   right.mov          → scenes/{id}/right.mov
  *   mesh/collision.glb → scenes/{id}/collision.glb
  *   preview.png        → scenes/{id}/preview.png
+ *   preview_right.png  → scenes/{id}/preview_right.png
  *
- * 输出（stdout）：JSON { "worldJsonUrl": "...", "previewVideoUrl": "...", "rightVideoUrl": "...", "collisionUrl": "...", "previewUrl": "..." }
- * 每个 URL 是 Azure 稳定地址（不含 SAS）。
+ * 输出（stdout）：JSON { "worldJsonUrl", "previewVideoUrl", "rightVideoUrl", "collisionUrl", "previewUrl", "previewRightUrl" }
+ * 每个 URL 是 Azure 稳定地址（不含 SAS）。中间 MP4 不上传（录制收尾已删除）。
  */
 import { createRequire } from 'module';
 import { readFileSync, readdirSync, statSync } from 'fs';
@@ -74,6 +75,7 @@ function getContainerName(envPath) {
 const CONTENT_TYPES = {
   '.json': 'application/json',
   '.mp4': 'video/mp4',
+  '.mov': 'video/quicktime',
   '.glb': 'model/gltf-binary',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
@@ -118,13 +120,14 @@ if (!folder) { console.error('缺少 --folder'); process.exit(1); }
 const service = BlobServiceClient.fromConnectionString(connectionString);
 const container = service.getContainerClient(containerName);
 
-// 本地文件相对路径 → Azure blob 后缀
+// 本地文件相对路径 → Azure blob 后缀。只传交付 MOV（不传中间 mp4）。
 const uploadMap = [
   { local: 'world_config.json', blob: 'world_config.json' },
-  { local: 'main.mp4', blob: 'main.mp4' },
-  { local: 'right.mp4', blob: 'right.mp4' },
+  { local: 'main.mov', blob: 'main.mov' },
+  { local: 'right.mov', blob: 'right.mov' },
   { local: join('mesh', 'collision.glb'), blob: 'collision.glb' },
   { local: 'preview.png', blob: 'preview.png' },
+  { local: 'preview_right.png', blob: 'preview_right.png' },
 ];
 
 try {
@@ -139,10 +142,11 @@ try {
     const contentType = CONTENT_TYPES[extname(local).toLowerCase()] || 'application/octet-stream';
     const url = await uploadFile(blobClient, localPath, contentType);
     if (blob === 'world_config.json') result.worldJsonUrl = url;
-    else if (blob === 'main.mp4') result.previewVideoUrl = url;
-    else if (blob === 'right.mp4') result.rightVideoUrl = url;
+    else if (blob === 'main.mov') result.previewVideoUrl = url;
+    else if (blob === 'right.mov') result.rightVideoUrl = url;
     else if (blob === 'collision.glb') result.collisionUrl = url;
     else if (blob === 'preview.png') result.previewUrl = url;
+    else if (blob === 'preview_right.png') result.previewRightUrl = url;
   }
   validate('scene-upload', result);
   process.stdout.write(JSON.stringify(result));

@@ -140,7 +140,7 @@ UPDATE scenes
 SET convert_status = 'ready',
     convert_task_id = $1,          -- batch-{sceneId}-{attempt}
     world_json_url = $2,           -- Azure 上 world_config.json 的稳定 URL
-    preview_video_url = $3,        -- Azure 上主路视频 main.mp4 的稳定 URL
+    preview_video_url = $3,        -- Azure 上主路视频 main.mov 的稳定 URL
     convert_error = NULL,
     updated_at = NOW()
 WHERE id = $4;                      -- scene_id
@@ -163,10 +163,12 @@ WHERE id = $2;
 | `convert_status` | `ready` 或 `failed` |
 | `convert_task_id` | 本次批量尝试的追踪 id，例如 `batch-33-001` |
 | `world_json_url` | `https://<account>.blob.core.windows.net/scene-assets/scenes/{id}/world_config.json` |
-| `preview_video_url` | `https://<account>.blob.core.windows.net/scene-assets/scenes/{id}/main.mp4`（主路） |
+| `preview_video_url` | `https://<account>.blob.core.windows.net/scene-assets/scenes/{id}/main.mov`（主路） |
 | `convert_error` | 失败原因，最多 1000 字符；成功时置 NULL |
 
-> 关于双路视频：schema 只有 `preview_video_url` 一个视频字段，侧路 `right.mp4` 与主路一同上传到 `scenes/{id}/`，双路引用关系写入 `world_config.json` 内部，不单独占数据库列。
+> 关于双路视频：schema 只有 `preview_video_url` 一个视频字段，侧路 `right.mov` 与主路一同上传到 `scenes/{id}/`，双路引用关系写入 `world_config.json` 内部，不单独占数据库列。两路 MOV 由 ffmpeg 从录制器产出的中间 MP4 做 H.264 流拷贝 remux（不重编码），MOV 生成后中间 MP4 即删除、不上传。
+>
+> 首帧预览上传两张：正面 `preview.png` 与侧面 `preview_right.png`（另在返回契约里带 `previewRightUrl`，不占数据库列）。批量录制不生成双屏拼接 MOV；该拼接仅本地交付录制保留。
 
 ### 关于 HTTP convert-callback 端点
 
@@ -190,8 +192,8 @@ WHERE id = $2;
 4. **人工对齐**：导入后进入 `WaitingForAlignment` 暂停；用户调好地面/对齐后点「继续」，置 `alignmentConfirmed`。
 5. **自动出生点与活动点**：`BeginPlaceSpawn` / `BeginGeneratePoints` 自动放置出生点并生成站立活动点。
 6. **人工取景**：进入 `WaitingForCamera` 暂停；用户调好相机后点「继续」。
-7. **录制**：进入 PlayMode 由现有 Recorder 链路产出 `main.mp4 / right.mp4 / world_config.json / mesh/collision.glb / preview.png`，回到 EditMode 后校验必要文件非空。
-8. **上传与回写**：`BeginUpload` 经 `scene-upload.mjs` 上传 Azure，`BeginUpdateDB` 经 `scene-update.mjs` 直接 `UPDATE scenes` 为 `ready`（写 `world_json_url`、`preview_video_url`）。任一阶段失败都经 `FailCurrent` 记日志、回写 `failed`，并继续下一个任务。
+7. **录制与转码**：进入 PlayMode 由 Recorder 链路先产出中间 `main.mp4 / right.mp4`，录制收尾用 ffmpeg 做 H.264 流拷贝 remux 为交付 `main.mov / right.mov`，导出引用 mov 的 `world_config.json`，并产出正面 `preview.png` + 侧面 `preview_right.png`；随后删除中间 MP4。批量不生成拼接 MOV。回到 EditMode 后校验交付文件非空。
+8. **上传与回写**：`BeginUpload` 经 `scene-upload.mjs` 上传 `world_config.json / main.mov / right.mov / collision.glb / preview.png / preview_right.png`（不传 mp4），`BeginUpdateDB` 经 `scene-update.mjs` 直接 `UPDATE scenes` 为 `ready`（写 `world_json_url`、`preview_video_url`）。任一阶段失败都经 `FailCurrent` 记日志、回写 `failed`，并继续下一个任务。
 9. **契约校验**：四个 Node 脚本在 stdout 前都用 `Tools/contracts.mjs` 按对应 JSON Schema 校验，防止 C# 模型与脚本输出漂移。
 
 ### 尚未实现 / 待办

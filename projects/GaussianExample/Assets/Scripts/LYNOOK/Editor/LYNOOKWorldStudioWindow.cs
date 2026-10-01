@@ -119,6 +119,9 @@ namespace Lynook.DualScreen.Editor
             if (world != null && (world.gaussian == null || world.cameraRig == null || world.activityPoints == null)) world = null;
             pickingMode = 0;
             hasPickMarker = false;
+            // 统一上下文开关：批量录制进行期间，所有独立录制/预览入口据此禁用，
+            // 强制用户走「8 · 批量录制」的「继续批量录制」，避免绕过状态机导致产物不上传。
+            bool batchActive = LYNOOKBatchController.IsRunning;
             controls.Clear();
             var files = Section("1 · 本地文件", world == null);
             var title = new TextField("房间名称") { value = roomTitle ?? "" };
@@ -336,7 +339,8 @@ namespace Lynook.DualScreen.Editor
             Button(cameraRow, "使用当前 Scene 视角", AlignCamera);
             Button(cameraRow, "选择拍摄相机架", () => Select(world.cameraRig.CaptureRig));
             Button(camera, "刷新双屏预览", RefreshPreview);
-            Button(camera, "录制 2 秒取景预览（不生成交付配置）", () => LYNOOKWorldStudioRecording.StartPreview(world));
+            var previewOnlyBtn = Button(camera, "录制 2 秒取景预览（不生成交付配置）", () => LYNOOKWorldStudioRecording.StartPreview(world));
+            if (batchActive) DisableForBatch(previewOnlyBtn, "批量录制进行中，取景预览已禁用；请在「8 · 批量录制」中继续。");
             var previewRow = new VisualElement();
             previewRow.AddToClassList("preview-row");
             camera.Add(previewRow);
@@ -406,7 +410,9 @@ namespace Lynook.DualScreen.Editor
             var outputRow = Row(output);
             Button(outputRow, "保存制作草稿", () => { LYNOOKWorldPersistence.SaveDraft(world); SetStatus("已保存制作场景与 world_draft.json。"); });
             Button(outputRow, "检查全部点位", () => SetStatus(LYNOOKWorldPersistence.ValidateForRecording(world)));
-            Button(output, "录制双屏并导出本地房间包", () => LYNOOKWorldStudioRecording.Start(world)).AddToClassList("primary");
+            var standaloneRecordBtn = Button(output, "录制双屏并导出本地房间包", () => LYNOOKWorldStudioRecording.Start(world));
+            standaloneRecordBtn.AddToClassList("primary");
+            if (batchActive) DisableForBatch(standaloneRecordBtn, "批量录制进行中，独立录制已禁用；请使用「8 · 批量录制」里的「继续批量录制」完成本房间。");
             Button(output, "打开制作文件夹", () => EditorUtility.RevealInFinder(Path.GetFullPath(world.workspacePath)));
             Button(output, "打开录制输出文件夹", () => EditorUtility.RevealInFinder(Path.GetFullPath("Recordings/LYNOOK/WorldStudio")));
 
@@ -520,6 +526,16 @@ namespace Lynook.DualScreen.Editor
         {
             var button = new Button(() => Run(action)) { text = label };
             parent.Add(button); return button;
+        }
+
+        /// <summary>
+        /// 批量录制期间统一禁用入口：置灰、拦截点击，并通过 tooltip 说明原因和正确路径。
+        /// 即便有残留点击，button.SetEnabled(false) 也不会触发 action（UIElements 保证）。
+        /// </summary>
+        static void DisableForBatch(Button button, string reason)
+        {
+            button.SetEnabled(false);
+            button.tooltip = reason;
         }
 
         static void Help(VisualElement parent, string text)
@@ -738,7 +754,7 @@ namespace Lynook.DualScreen.Editor
                     {
                         if (!world.spawnPlaced) throw new InvalidOperationException("先设置出生地。");
                         if (!LYNOOKWorldInteraction.ValidStandingPoint(world, hit.point, out string reason)) throw new InvalidOperationException(reason);
-                        if (!LYNOOKWorldInteraction.DirectPathClear(world, world.avatarSpawn.position, hit.point)) throw new InvalidOperationException("出生地到该位置存在障碍。");
+                        // 不再拦截出生地到该点的直线路径遮挡，运行时由寻路算法到达。
                         var point = new GameObject("stand_" + Guid.NewGuid().ToString("N").Substring(0, 6));
                         point.transform.SetParent(world.activityPoints, false);
                         point.transform.position = hit.point;

@@ -14,6 +14,10 @@ namespace Lynook.DualScreen
     public sealed class LYNOOKRecordingWorldExporter
     {
         public const string DefaultsPath = "Assets/LYNOOK/WorldExport/world_config.defaults.json";
+        /// <summary>录制来源：批量队列（batch）或本地独立录制（manual）。</summary>
+        public const string SourceBatch = "batch";
+        public const string SourceManual = "manual";
+
         readonly string folder;
         readonly string mainBaseName;
         readonly string sideBaseName;
@@ -29,10 +33,12 @@ namespace Lynook.DualScreen
         }
 
         public static LYNOOKRecordingWorldExporter Capture(
-            string folder, Camera main, Camera side, string mainBaseName, string sideBaseName)
+            string folder, Camera main, Camera side, string mainBaseName, string sideBaseName,
+            string recordingSource = SourceManual, int batchSceneId = 0)
         {
             if (main == null || side == null || main.gameObject.scene != side.gameObject.scene)
                 throw new InvalidOperationException("World export requires two cameras in the recording scene.");
+            string source = recordingSource == SourceBatch ? SourceBatch : SourceManual;
 
             var settings = main.gameObject.scene.GetRootGameObjects()
                 .SelectMany(root => root.GetComponentsInChildren<LYNOOKWorldExportSettings>(true))
@@ -78,7 +84,10 @@ namespace Lynook.DualScreen
                 coordinateSpace = coordinateRoot != null ? "worldCoordinateRoot" : "recordingScene",
                 coordinateRoot = coordinateRoot != null ? coordinateRoot.name : "",
                 mainResolution = new[] { main.pixelWidth, main.pixelHeight },
-                sideResolution = new[] { side.pixelWidth, side.pixelHeight }
+                sideResolution = new[] { side.pixelWidth, side.pixelHeight },
+                // 体现录制来源：批量队列（带 Postgres scenes.id）或本地独立录制。
+                source = source,
+                batchSceneId = source == SourceBatch && batchSceneId > 0 ? batchSceneId : 0
             };
             var authored = main.gameObject.scene.GetRootGameObjects()
                 .SelectMany(root => root.GetComponentsInChildren<LYNOOKWorldAuthoring>(true)).SingleOrDefault();
@@ -170,8 +179,7 @@ namespace Lynook.DualScreen
                 return true;
             try
             {
-                // Prefer the finalized MOV, but support MP4-only or a failed remux.
-                // Each panel is resolved separately, so a partial remux stays usable.
+                // 交付视频只引用 remux 出的 MOV（mp4 为中间产物、会被删除，不写入配置）。
                 config.videoMaterials[0].video = FindVideo(mainBaseName);
                 config.videoMaterials[1].video = FindVideo(sideBaseName);
                 string path = Path.Combine(folder, "world_config.json");
@@ -195,14 +203,12 @@ namespace Lynook.DualScreen
 
         string FindVideo(string baseName)
         {
-            foreach (string extension in new[] { ".mov", ".mp4" })
-            {
-                string relative = RelativePath(baseName + extension);
-                string path = Path.Combine(folder, relative);
-                if (File.Exists(path) && new FileInfo(path).Length > 0)
-                    return relative;
-            }
-            throw new FileNotFoundException("No completed panel video for " + baseName + "; world config was not published.");
+            // 仅接受 MOV。该方法只在交付录制（mov 已 remux 完成）时被调用。
+            string relative = RelativePath(baseName + ".mov");
+            string path = Path.Combine(folder, relative);
+            if (File.Exists(path) && new FileInfo(path).Length > 0)
+                return relative;
+            throw new FileNotFoundException("No completed MOV panel video for " + baseName + "; world config was not published.");
         }
 
         static string RelativePath(string value)
@@ -414,6 +420,10 @@ namespace Lynook.DualScreen
             public int[] mainResolution;
             public int[] sideResolution;
             public bool meshAlignmentVerified = false;
+            // "batch" = 来自批量录制队列（scene-queue），"manual" = 本地独立录制
+            public string source = SourceManual;
+            // batch 来源时对应 Postgres scenes.id；manual 时为 0
+            public int batchSceneId;
         }
 #pragma warning restore CS0649
     }

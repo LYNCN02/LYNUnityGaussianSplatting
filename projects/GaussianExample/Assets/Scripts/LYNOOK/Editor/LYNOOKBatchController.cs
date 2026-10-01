@@ -123,7 +123,8 @@ namespace Lynook.DualScreen.Editor
             Transition(task, BatchTaskState.Recording);
             try
             {
-                LYNOOKWorldStudioRecording.Start(task.world);
+                // 走批量录制入口：world_config.json / status.json 记 source=batch + scenes.id。
+                LYNOOKWorldStudioRecording.StartBatch(task.world, task.item.id);
             }
             catch (Exception exception)
             {
@@ -256,10 +257,19 @@ namespace Lynook.DualScreen.Editor
         {
             string recordingFolder = FindRecordingFolder(task.world.worldId);
             if (string.IsNullOrEmpty(recordingFolder)) throw new InvalidOperationException("未找到录制输出目录。");
+            Debug.Log($"[LYNOOKBatchController] [8/8] 开始上传 Azure #{task.item.id} {task.item.name}：{recordingFolder}");
             LYNOOKSceneService.UploadSceneAssetsAsync(task.item.id, recordingFolder, (result, err) =>
             {
                 if (err != null) { FailCurrent(err); return; }
                 task.uploadResult = result;
+                Debug.Log(
+                    $"[LYNOOKBatchController] [8/8] 上传完成 #{task.item.id} {task.item.name}：\n" +
+                    $"  world_config: {result.worldJsonUrl}\n" +
+                    $"  main.mov: {result.previewVideoUrl}\n" +
+                    $"  right.mov: {result.rightVideoUrl}\n" +
+                    $"  collision.glb: {result.collisionUrl}\n" +
+                    $"  preview.png: {result.previewUrl}\n" +
+                    $"  preview_right.png: {result.previewRightUrl}");
                 Transition(task, BatchTaskState.UpdatingDB);
                 EditorApplication.delayCall += ProcessCurrent;
             });
@@ -268,6 +278,7 @@ namespace Lynook.DualScreen.Editor
         static void BeginUpdateDB(BatchTask task)
         {
             var upload = task.uploadResult;
+            Debug.Log($"[LYNOOKBatchController] [8/8] 开始更新数据库 #{task.item.id} {task.item.name}：convert_status = {LynookConvertStatuses.Ready}");
             LYNOOKSceneService.UpdateSceneStatusAsync(
                 task.item.id, LynookConvertStatuses.Ready,
                 worldJsonUrl: upload.worldJsonUrl,
@@ -276,6 +287,9 @@ namespace Lynook.DualScreen.Editor
                 callback: (result, err) =>
                 {
                     if (err != null) { FailCurrent(err); return; }
+                    Debug.Log(
+                        $"[LYNOOKBatchController] [8/8] 数据库更新完成 #{task.item.id} {task.item.name}：" +
+                        $"updated={result.updated}, convert_status={result.convertStatus}, sceneId={result.sceneId}");
                     Transition(task, BatchTaskState.Done);
                     EditorApplication.delayCall += ProcessCurrent;
                 });
@@ -328,7 +342,12 @@ namespace Lynook.DualScreen.Editor
 
         static bool ValidateRecording(string folder)
         {
-            string[] required = { "main.mp4", "right.mp4", "world_config.json", "mesh/collision.glb", "preview.png" };
+            // 交付产物：两路 MOV + world_config + 碰撞 GLB + 正/侧首帧预览；无 mp4。
+            string[] required =
+            {
+                "main.mov", "right.mov", "world_config.json",
+                "mesh/collision.glb", "preview.png", "preview_right.png"
+            };
             foreach (string file in required)
             {
                 string path = Path.Combine(folder, file);
@@ -339,7 +358,12 @@ namespace Lynook.DualScreen.Editor
 
         // ── 失败 / 收尾 ──
 
-        static void FailCurrent(Exception exception) => FailCurrent(exception.Message);
+        static void FailCurrent(Exception exception)
+        {
+            // 保留出错状态与完整堆栈，避免只看 Message 无法定位空引用来源。
+            string where = currentIndex < tasks.Count ? tasks[currentIndex].state.ToString() : currentState.ToString();
+            FailCurrent($"[{where}] {exception.Message}\n{exception.StackTrace}");
+        }
 
         static void FailCurrent(string error)
         {

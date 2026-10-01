@@ -51,6 +51,12 @@ namespace Lynook.DualScreen
         bool movFinalized;
         bool previewFinalized;
         LYNOOKRecordingWorldExporter worldExporter;
+        // 本次录制来源（batch / manual）与批量队列场景 id，供 world_config.json 记录。
+        string recordingSource = LYNOOKRecordingWorldExporter.SourceManual;
+        int batchSceneId;
+        // 交付录制（非 2 秒取景预览）时要 remux mov；是否生成双屏拼接预览（批量不要）。
+        bool isDeliverableRecording;
+        bool createStitchedPreview;
 #endif
 
         public void SetReferences(LYNOOKDualCameraRig rig, PlayableDirector director)
@@ -86,7 +92,8 @@ namespace Lynook.DualScreen
             perspectiveSide = side;
         }
 
-        public void BeginRecording(string folder, bool includeWorldConfig = true)
+        public void BeginRecording(string folder, bool includeWorldConfig = true,
+            string source = null, int sceneId = 0)
         {
             if (!Application.isPlaying || recordingRequested)
                 throw new System.InvalidOperationException("Recording must be requested once in Play Mode from Tools > LYNOOK > Record.");
@@ -97,6 +104,15 @@ namespace Lynook.DualScreen
             movFinalized = false;
             previewFinalized = false;
             worldExporter = null;
+            recordingSource = source == LYNOOKRecordingWorldExporter.SourceBatch
+                ? LYNOOKRecordingWorldExporter.SourceBatch
+                : LYNOOKRecordingWorldExporter.SourceManual;
+            batchSceneId = sceneId;
+            // includeWorldConfig == true 即交付录制（2 秒取景预览传 false）。
+            isDeliverableRecording = includeWorldConfig;
+            // 拼接预览仅本地交付录制需要；批量录制不需要，只保留双 preview.png。
+            createStitchedPreview = includeWorldConfig
+                && recordingSource != LYNOOKRecordingWorldExporter.SourceBatch;
             recordingRequested = true;
             StartCoroutine(RecordAfterInitialization());
         }
@@ -138,17 +154,17 @@ namespace Lynook.DualScreen
             if (recorderController != null && recorderController.IsRecording())
                 recorderController.StopRecording();
 
-            // A user may stop Play Mode before the configured frame interval ends. The
-            // recorder still finalizes valid partial MP4 files, so remux those immediately
-            // instead of requiring the full 300-frame session to finish.
-            if (recordingStarted
-                && outputFormat == LYNOOKMovieOutputFormat.H264Mp4AndFfmpegMov
-                && !movFinalized)
+            // 用户在帧区间结束前停止 Play Mode：录制器仍会定稿有效的部分 MP4。
+            // 交付录制要把部分 MP4 也 remux 成 MOV（批量不需要拼接预览），保证产物仍是 mov。
+            if (recordingStarted && isDeliverableRecording && !movFinalized)
             {
                 recordingFinished = true;
-                Debug.Log("LYNOOK Play Mode stopped early; finalizing the off-axis pair and physical preview.");
+                Debug.Log("LYNOOK Play Mode stopped early; remuxing the partial off-axis pair to MOV.");
                 if (RemuxPairToMovSynchronously())
-                    CreatePhysicalPreviewSynchronously();
+                {
+                    if (createStitchedPreview) CreatePhysicalPreviewSynchronously();
+                    DeleteIntermediateMp4s();
+                }
             }
             if (recordingStarted)
                 worldExporter?.TryWrite();
@@ -253,10 +269,12 @@ namespace Lynook.DualScreen
             RecorderOptions.VerboseMode = true;
             recorderController = new RecorderController(controllerSettings);
             recorderController.PrepareRecording();
+            // 先捕获/校验 world 导出（含录制来源 source + batchSceneId），通过后再正式录制，
+            // 避免录制已开始才发现 world_config 无法生成。
             worldExporter = includeWorldConfiguration ? LYNOOKRecordingWorldExporter.Capture(absoluteOutputFolder,
                 cameraRig != null ? cameraRig.MainCaptureCamera : perspectiveMain,
                 cameraRig != null ? cameraRig.SideCaptureCamera : perspectiveSide,
-                MainOutputBaseName, SideOutputBaseName) : null;
+                MainOutputBaseName, SideOutputBaseName, recordingSource, batchSceneId) : null;
 
             // One RecorderController owns both RecorderSettings, so Prepare and Record are
             // issued once for the pair rather than sequentially per camera.
@@ -267,28 +285,36 @@ namespace Lynook.DualScreen
                 sharedTimeline.Play();
 
             recordingStarted = true;
-            string outputDescription = outputFormat switch
-            {
-                LYNOOKMovieOutputFormat.H264Mp4AndFfmpegMov => ".mp4 + automatic H.264 .mov remux",
-                LYNOOKMovieOutputFormat.ProRes422LtMov => "native ProRes .mov",
-                _ => ".mp4"
-            };
+            // Recorder 直接产出 MP4，交付录制收尾再由 ffmpeg remux 成 MOV（mp4 仅为中间产物）。
+            string outputDescription = ".mp4 intermediate -> " +
+                (outputFormat == LYNOOKMovieOutputFormat.ProRes422LtMov ? "native ProRes .mov" : "H.264 .mov deliverable");
             Debug.Log($"LYNOOK dual recording started: {frameCount} frames at {frameRate} fps, output {outputDescription} -> {absoluteOutputFolder}");
         }
 
         void FinalizeOutputsAndExit()
         {
-            if (outputFormat == LYNOOKMovieOutputFormat.H264Mp4AndFfmpegMov)
+            bool readyToExit = true;
+            if (isDeliverableRecording)
             {
-                if (RemuxPairToMovSynchronously())
-                    CreatePhysicalPreviewSynchronously();
-            }
-            else
-            {
-                CreatePhysicalPreviewSynchronously();
+                // 交付产物：先把两路 MP4 remux 为 MOV（H.264 流拷贝，不重编码）。
+                if (!RemuxPairToMovSynchronously())
+                {
+                    // 不从 Update 抛异常（会导致 PlayMode 卡住不退出）：记录后安排退出，
+                    // 批量侧 ValidateRecording 会因 mov 缺失走 FailCurrent；保留 mp4 供排查。
+                    Debug.LogError("LYNOOK FFmpeg remux MOV 失败，无法交付。请检查 ffmpeg 与源 MP4。中间 MP4 已保留。");
+                    readyToExit = false;
+                }
+                else
+                {
+                    // 仅本地交付需要双屏拼接预览；批量录制跳过拼接 mov。
+                    if (createStitchedPreview) CreatePhysicalPreviewSynchronously();
+                    // MOV 已生成，删除中间 MP4（不上传 mp4）。
+                    DeleteIntermediateMp4s();
+                }
             }
 
-            worldExporter?.TryWrite();
+            // 交付时视频已是 mov，world_config.json 引用 .mov。
+            if (readyToExit) worldExporter?.TryWrite();
 
             EditorApplication.delayCall += () =>
             {
@@ -297,6 +323,25 @@ namespace Lynook.DualScreen
                 else if (EditorApplication.isPlaying)
                     EditorApplication.ExitPlaymode();
             };
+        }
+
+        /// <summary>
+        /// 删除 remux 后已不再需要的中间 MP4（main/right）。交付与上传都只用 MOV。
+        /// 仅在对应 MOV 存在时删除，避免误删未转换成功的源。
+        /// </summary>
+        void DeleteIntermediateMp4s()
+        {
+            string folder = Path.GetFullPath(Path.Combine(Application.dataPath, "..", requestedOutputFolder ?? outputFolder));
+            foreach (var baseName in new[] { MainOutputBaseName, SideOutputBaseName })
+            {
+                string mov = Path.Combine(folder, baseName + ".mov");
+                string mp4 = Path.Combine(folder, baseName + ".mp4");
+                if (File.Exists(mov) && File.Exists(mp4))
+                {
+                    File.Delete(mp4);
+                    Debug.Log("LYNOOK 已删除中间 MP4（已转换为 MOV）：" + mp4);
+                }
+            }
         }
 
         bool RemuxPairToMovSynchronously()
@@ -354,9 +399,9 @@ namespace Lynook.DualScreen
             }
 
             string absoluteOutputFolder = Path.GetFullPath(Path.Combine(Application.dataPath, "..", requestedOutputFolder ?? outputFolder));
-            string extension = outputFormat == LYNOOKMovieOutputFormat.H264Mp4 ? ".mp4" : ".mov";
-            string mainInput = Path.Combine(absoluteOutputFolder, MainOutputBaseName + extension);
-            string sideInput = Path.Combine(absoluteOutputFolder, SideOutputBaseName + extension);
+            // 拼接只在 mov remux 完成后执行（此时 mp4 尚未删除，但统一以 mov 为源）。
+            string mainInput = Path.Combine(absoluteOutputFolder, MainOutputBaseName + ".mov");
+            string sideInput = Path.Combine(absoluteOutputFolder, SideOutputBaseName + ".mov");
             string finalOutput = Path.Combine(absoluteOutputFolder, PhysicalPreviewFileName);
             if (!File.Exists(mainInput) || !File.Exists(sideInput))
             {

@@ -97,8 +97,8 @@ namespace Lynook.DualScreen.Editor
                 main.transform.localPosition = side.transform.localPosition = new Vector3(0, 1.5f, -3);
                 Directory.CreateDirectory(temporary);
                 // Sentinel files exercise schema publication, not actual video encoding.
-                File.WriteAllBytes(temporary + "/main.mp4", new byte[] { 1 });
-                File.WriteAllBytes(temporary + "/right.mp4", new byte[] { 1 });
+                File.WriteAllBytes(temporary + "/main.mov", new byte[] { 1 });
+                File.WriteAllBytes(temporary + "/right.mov", new byte[] { 1 });
                 var exporter = LYNOOKRecordingWorldExporter.Capture(temporary, main, side, "main", "right");
                 Assert(exporter.TryWrite(), "Authored export failed");
                 var probe = JsonUtility.FromJson<Probe>(File.ReadAllText(temporary + "/world_config.json"));

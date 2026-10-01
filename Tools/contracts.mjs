@@ -81,8 +81,9 @@ function selftest() {
     ['scene-download', { splat: '/a.spz', collider: '/b.glb', splatBytes: 1, colliderBytes: 2 }, true],
     ['scene-download', { splat: '/a.spz' }, false],
     ['scene-upload', {
-      worldJsonUrl: 'https://x/a.json', previewVideoUrl: 'https://x/a.mp4',
-      rightVideoUrl: 'https://x/b.mp4', collisionUrl: 'https://x/c.glb', previewUrl: 'https://x/d.png',
+      worldJsonUrl: 'https://x/a.json', previewVideoUrl: 'https://x/a.mov',
+      rightVideoUrl: 'https://x/b.mov', collisionUrl: 'https://x/c.glb',
+      previewUrl: 'https://x/d.png', previewRightUrl: 'https://x/e.png',
     }, true],
     ['scene-upload', { worldJsonUrl: 'https://x/a.json' }, false],
     ['scene-update', { updated: true, sceneId: 3, convertStatus: 'ready' }, true],

@@ -162,7 +162,8 @@ namespace Lynook.DualScreen.Editor
                         (world.floorTolerance * 2 + 0.1f) * scale)) continue;
                 if (Vector3.Distance(hit.point, world.avatarSpawn.position) < minDist) continue;
                 if (!LYNOOKWorldInteraction.ValidStandingPoint(world, hit.point, out _)) continue;
-                if (!LYNOOKWorldInteraction.DirectPathClear(world, world.avatarSpawn.position, hit.point)) continue;
+                // 不再以「从出生地直线路径无遮挡」过滤候选：点可在墙后/需绕行处，
+                // 只要地面与净空合法即采纳，运行时由寻路算法到达。
                 candidates.Add(hit.point);
             }
 

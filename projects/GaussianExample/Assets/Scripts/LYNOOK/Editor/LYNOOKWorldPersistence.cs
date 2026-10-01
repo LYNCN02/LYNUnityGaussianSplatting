@@ -43,18 +43,19 @@ namespace Lynook.DualScreen.Editor
             LYNOOKWorldPersistence.ValidateSettings(world);
             if (!world.alignmentConfirmed) throw new InvalidOperationException("请先检查高斯与 GLB，并勾选已确认对齐。");
             if (!world.spawnPlaced || !LYNOOKWorldInteraction.ValidStandingPoint(world, world.avatarSpawn.position, out _)) throw new InvalidOperationException("请设置有效出生地。");
-            var locations = new List<Vector3> { world.avatarSpawn.position };
+            int pointCount = 0;
             var names = new HashSet<string>(StringComparer.Ordinal);
             foreach (Transform point in world.activityPoints)
             {
                 if (string.IsNullOrWhiteSpace(point.name) || !names.Add(point.name)) throw new InvalidOperationException("活动点名称必须非空且唯一。");
                 if (!LYNOOKWorldInteraction.ValidStandingPoint(world, point.position, out string reason)) throw new InvalidOperationException(point.name + "：" + reason);
-                if (locations.Any(p => !LYNOOKWorldInteraction.DirectPathClear(world, p, point.position))) throw new InvalidOperationException(point.name + " 与其他点位之间存在障碍或地面缺口。");
-                locations.Add(point.position);
+                // 不再要求各点与其他点之间直线路径无遮挡：最终运行时由寻路算法兜底，
+                // 两点间允许绕墙/绕缺口到达。
+                ++pointCount;
             }
             if (!world.cameraRig.TryValidate(out string report)) throw new InvalidOperationException(report);
             if (world.recordingSeconds < 1 || world.recordingSeconds > 120) throw new InvalidOperationException("录制时长应为 1–120 秒。");
-            return "出生地及 " + (locations.Count - 1) + " 个活动点通过地面、净空和直线路径检查。双屏物理效果仍需设备验证。";
+            return "出生地及 " + pointCount + " 个活动点通过地面与净空检查。双屏物理效果仍需设备验证；点间通行由运行时寻路算法处理。";
         }
 
         public static void SaveDraft(LYNOOKWorldAuthoring world)

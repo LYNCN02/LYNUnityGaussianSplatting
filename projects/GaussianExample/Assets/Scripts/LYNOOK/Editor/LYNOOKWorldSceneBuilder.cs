@@ -158,12 +158,18 @@ namespace Lynook.DualScreen.Editor
             gaussian.m_ShaderDebugBoxes = AssetDatabase.LoadAssetAtPath<Shader>(ShaderRoot + "GaussianDebugRenderBoxes.shader");
             gaussian.m_CSSplatUtilities = AssetDatabase.LoadAssetAtPath<ComputeShader>(ShaderRoot + "SplatUtilities.compute");
             world.gaussian = gaussian;
-            splatObject.SetActive(true);
+            // 关键加载顺序：Gaussian Visual 必须保持 inactive，直到 SaveScene 之后资产 native
+            // side 完全就绪（gaussian.HasValidAsset == true）才能 SetActive(true)。
+            // 提前激活时若资产处于 fake-null（C# 字段在、native 未加载），OnEnable 的
+            // CreateResourcesForAsset 会因 HasValidAsset == false 直接返回；之后 Update 中
+            // fake-null 与 null 经重载 == 比较相等，也不会再重建 GPU 资源——表现为高斯不显示、
+            // 后续地面点击/录制出现空引用。激活逻辑见本方法 SaveScene 之后的就绪等待循环。
 
             var rigObject = (GameObject)PrefabUtility.InstantiatePrefab(prefab, scene);
             PrefabUtility.UnpackPrefabInstance(rigObject, PrefabUnpackMode.Completely, InteractionMode.AutomatedAction);
             rigObject.transform.SetParent(host.transform, false);
             var rig = rigObject.GetComponent<LYNOOKDualCameraRig>();
+            if (rig == null) throw new InvalidOperationException("双屏相机模板缺少 LYNOOKDualCameraRig 组件：" + RigPrefab);
             if (rigObject.GetComponent<CameraRigTransformCopy>() == null) rigObject.AddComponent<CameraRigTransformCopy>();
             world.cameraRig = rig;
             var mainTexture = Object.Instantiate(rig.MainCaptureTexture);
@@ -173,6 +179,12 @@ namespace Lynook.DualScreen.Editor
             rig.SetReferences(rig.CaptureRig, rig.MainCaptureCamera, rig.SideCaptureCamera, mainTexture, sideTexture);
             var session = rigObject.GetComponent<LYNOOKDualRecordingSession>();
             if (session == null) session = rigObject.AddComponent<LYNOOKDualRecordingSession>();
+            // AddComponent 对 Editor 程序集里的 MonoBehaviour 会静默返回 null（Console 另有
+            // "Can't add script behaviour ... because it is an editor script" 报错），
+            // 不拦截就会在下一行 session.SetReferences 处变成含义不明的空引用。
+            if (session == null)
+                throw new InvalidOperationException(
+                    "无法添加 LYNOOKDualRecordingSession：该组件必须位于非 Editor 程序集（场景物体不能挂 Editor-only asmdef 中的 MonoBehaviour）。");
             session.SetReferences(rig, null);
             session.SetOutputNames("main", "right", "preview.mov");
 
@@ -201,28 +213,64 @@ namespace Lynook.DualScreen.Editor
             rig.ApplyConfiguration();
             LYNOOKWorldInteraction.SetCollisionVisible(world, false);
             string scenePath = folder + "/Room.unity";
+            // 第一次保存时 Gaussian Visual 仍是 inactive：m_Asset 的 GUID/fileID 引用会照常
+            // 写入场景，但 SaveScene 触发的 Room.unity 导入会进入 AssetDatabase 队列，可能让
+            // 内存中的 GaussianSplatAsset 变成 fake-null（C# 包装在、native side 未加载）。
             if (!EditorSceneManager.SaveScene(scene, scenePath)) throw new IOException("无法保存制作场景。");
-            // ── fake-null 修复 ──
-            // ImportFile 返回的 GaussianSplatAsset 实例 C# 字段都正确，但 Unity native side 还没
-            // 加载好，所以 m_Asset != null（UnityEngine.Object 重载的 ==）返回 false，导致
-            // HasValidAsset 一直 false、渲染不出。这里在 SaveScene 之后强制刷新 AssetDatabase、
-            // 等 RefreshV2 把所有 pending import 完成后，重新 LoadAssetAtPath 拿一个 native side
-            // 已加载好的实例，再赋值给 renderer。这一步要在 SaveScene 之后做，因为 SaveScene 触发
-            // 的 Room.unity 导入也会进入 AssetDatabase 队列，必须等它一起完成才能保证 native side 一致。
-            // 详见 docs/lynook-world-studio.md「已知问题与修复记录」。
-            AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
-            GaussianSplatAsset reloadedAsset = AssetDatabase.LoadAssetAtPath<GaussianSplatAsset>(assetPath);
-            if (reloadedAsset != null && reloadedAsset.posData != null && reloadedAsset.otherData != null && reloadedAsset.colorData != null && reloadedAsset.shData != null)
+
+            // ── 加载顺序：等高斯资产完全 ready 后才在场景里激活渲染器 ──
+            // 有界同步重试：每轮强制同步 Refresh → 重新导入全部 .bytes 子资产 → 重新导入并
+            // 加载主 .asset → 赋给仍处于 inactive 的 renderer，以 renderer.HasValidAsset
+            // （m_Asset 非 fake-null + splatCount>0 + 版本正确 + pos/other/color/sh 全在）
+            // 作为唯一就绪判据。inactive 状态下赋值不会触发 OnEnable/Update，只做判定。
+            const int maxReadyAttempts = 4;
+            GaussianSplatAsset readyAsset = null;
+            for (int attempt = 1; attempt <= maxReadyAttempts; attempt++)
             {
-                // m_PrevAsset 仍是 null，下一个 Update 帧会检测到 m_PrevAsset != m_Asset 并触发
-                // DisposeResourcesForAsset + CreateResourcesForAsset，自动重建 GPU 缓冲。
-                gaussian.m_Asset = reloadedAsset;
+                AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+                foreach (var sub in subAssetFiles)
+                    if (File.Exists(sub))
+                        AssetDatabase.ImportAsset(sub, ImportAssetOptions.ForceSynchronousImport | ImportAssetOptions.ForceUpdate);
+                AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceSynchronousImport | ImportAssetOptions.ForceUpdate);
+                var candidate = AssetDatabase.LoadAssetAtPath<GaussianSplatAsset>(assetPath);
+                gaussian.m_Asset = candidate;
+                if (gaussian.HasValidAsset)
+                {
+                    readyAsset = candidate;
+                    break;
+                }
+                Debug.LogWarning($"[LYNOOK] 高斯资产第 {attempt}/{maxReadyAttempts} 次同步刷新后仍未就绪，重试：{assetPath}");
             }
-            else
+            if (readyAsset == null)
+                throw new InvalidOperationException("高斯资产在多次同步刷新后仍未就绪（fake-null 或子资产缺失），中止导入: " + assetPath);
+
+            // 资产就绪后再激活：SetActive 同步触发 OnEnable，EnsureMaterials / 注册渲染系统 /
+            // CreateResourcesForAsset 一次成功；HasValidRenderSetup 确认 GPU 缓冲已建立。
+            splatObject.SetActive(true);
+            if (!gaussian.HasValidRenderSetup)
+                throw new InvalidOperationException("高斯渲染器激活后 GPU 资源未建立，请检查 ComputeShader 引用与显卡 Compute Shader 支持。");
+
+            // 第二次保存：第一次保存时 Gaussian Visual 还是 inactive，必须把激活后的 active
+            // 状态与最终 m_Asset 引用持久化进 Room.unity，否则重开场景高斯物体不显示。
+            EditorSceneManager.MarkSceneDirty(scene);
+            if (!EditorSceneManager.SaveScene(scene, scenePath)) throw new IOException("无法保存制作场景。");
+            // SaveScene 理论上可能再次让 m_Asset 退回 fake-null。渲染器此刻已激活，只需重新
+            // 加载并赋值，下一个 Update 会走 m_PrevAsset != m_Asset 的热切换路径，自动
+            // DisposeResourcesForAsset + CreateResourcesForAsset 重建 GPU 缓冲。
+            if (!gaussian.HasValidAsset)
             {
-                // 极少数情况下 Refresh 后 native side 仍未就绪；用户在 Inspector 中点 Render Mode
-                // 下拉框可触发 Unity 重新解析引用，等同于本路径的兜底手动版。
-                Debug.LogWarning($"[LYNOOK] Refresh 后 asset 仍 fake-null 或子资产缺失，将通过 inspector 触发延迟加载。reloadedAsset != null = {reloadedAsset != null}, posData={(reloadedAsset?.posData != null ? reloadedAsset.posData.name : "null")}");
+                AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+                var postSaveAsset = AssetDatabase.LoadAssetAtPath<GaussianSplatAsset>(assetPath);
+                if (postSaveAsset != null && postSaveAsset.splatCount > 0 &&
+                    postSaveAsset.posData != null && postSaveAsset.otherData != null &&
+                    postSaveAsset.colorData != null && postSaveAsset.shData != null)
+                {
+                    gaussian.m_Asset = postSaveAsset;
+                }
+                else
+                {
+                    Debug.LogWarning("[LYNOOK] 二次保存后高斯资产仍 fake-null，已保持物体激活；下次 AssetDatabase 刷新后可在 Inspector 重新指定资产恢复。");
+                }
             }
             LYNOOKWorldPersistence.SaveDraft(world);
             Selection.activeGameObject = host;

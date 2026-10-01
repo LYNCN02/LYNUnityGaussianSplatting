@@ -2,7 +2,8 @@
     "name": "LYNOOK.Runtime",
     "rootNamespace": "Lynook.DualScreen",
     "references": [
-        "GaussianSplatting"
+        "GaussianSplatting",
+        "Unity.Recorder.Editor"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

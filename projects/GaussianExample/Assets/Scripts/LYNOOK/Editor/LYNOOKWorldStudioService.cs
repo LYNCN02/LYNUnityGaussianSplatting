@@ -76,7 +76,7 @@ namespace Lynook.DualScreen.Editor
 
         [Serializable] public sealed class SceneUploadResult
         {
-            public string worldJsonUrl, previewVideoUrl, rightVideoUrl, collisionUrl, previewUrl;
+            public string worldJsonUrl, previewVideoUrl, rightVideoUrl, collisionUrl, previewUrl, previewRightUrl;
         }
 
         [Serializable] public sealed class SceneUpdateResult

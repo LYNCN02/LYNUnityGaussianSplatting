@@ -68,11 +68,11 @@ namespace Lynook.DualScreen.Editor
                 Directory.CreateDirectory(folder);
                 var snapshot = LYNOOKRecordingWorldExporter.Capture(folder, main, side, "front", "right");
                 File.WriteAllText(Path.Combine(folder, "front.mov"), "fixture");
-                File.WriteAllText(Path.Combine(folder, "right.mp4"), "fixture");
+                File.WriteAllText(Path.Combine(folder, "right.mov"), "fixture");
                 Require(snapshot.TryWrite(), "Export " + scene.name);
                 ConsumerConfig config = Read(folder);
                 Require(config.worldId == scene.name && config.videoMaterials.Length == 2, "Package identity/panel count");
-                Require(config.videoMaterials[0].video == "front.mov" && config.videoMaterials[1].video == "right.mp4", "MOV preference / MP4 fallback");
+                Require(config.videoMaterials[0].video == "front.mov" && config.videoMaterials[1].video == "right.mov", "Both panels reference MOV");
                 Require(config.avatarSpawn.applyTransform && Mathf.Abs(config.avatarSpawn.position[0] - 1.52f) < 0.0001f,
                     "Default avatar placement from World E");
                 Require(config.playerSpawn != null && config.scenePoints.Length == 1 && config.activityPoints.Length == 4,
@@ -111,8 +111,8 @@ namespace Lynook.DualScreen.Editor
             string mapped = Path.Combine(output, "mapped");
             Directory.CreateDirectory(mapped);
             var mappedSnapshot = LYNOOKRecordingWorldExporter.Capture(mapped, a, b, "front", "right");
-            File.WriteAllText(Path.Combine(mapped, "front.mp4"), "fixture");
-            File.WriteAllText(Path.Combine(mapped, "right.mp4"), "fixture");
+            File.WriteAllText(Path.Combine(mapped, "front.mov"), "fixture");
+            File.WriteAllText(Path.Combine(mapped, "right.mov"), "fixture");
             Require(mappedSnapshot.TryWrite(), "Mapped export");
             ConsumerConfig mappedConfig = Read(mapped);
             Require(mappedConfig.assets.preview == "images/custom.png" && mappedConfig.assets.gridMap == "nav/grid_map.json",
@@ -125,8 +125,8 @@ namespace Lynook.DualScreen.Editor
             Directory.CreateDirectory(frozen);
             var frozenSnapshot = LYNOOKRecordingWorldExporter.Capture(frozen, a, b, "front", "right");
             a.transform.position += Vector3.one;
-            File.WriteAllText(Path.Combine(frozen, "front.mp4"), "fixture");
-            File.WriteAllText(Path.Combine(frozen, "right.mp4"), "fixture");
+            File.WriteAllText(Path.Combine(frozen, "front.mov"), "fixture");
+            File.WriteAllText(Path.Combine(frozen, "right.mov"), "fixture");
             Require(frozenSnapshot.TryWrite(), "Frozen export");
             Require(Vector3.Distance(Vector(Read(frozen).mainCamera.position), Vector(mappedConfig.mainCamera.position)) < 0.00001f, "Start-of-take snapshot");
             Require(frozenSnapshot.TryWrite(), "Idempotent finalize");
@@ -136,7 +136,7 @@ namespace Lynook.DualScreen.Editor
             try { LYNOOKRecordingWorldExporter.Capture(mapped, a, b, "front", "right"); }
             catch (InvalidOperationException) { rejected = true; }
             Require(rejected, "Mirrored coordinate root rejected");
-            Debug.Log("LYNOOK_WORLD_EXPORT_VALIDATION_PASSED: complete World E defaults, four scene projections, relative paths, MOV/MP4 fallback, coordinate conversion, frozen snapshot, idempotence, mirrored-root rejection. Fixtures: " + output);
+            Debug.Log("LYNOOK_WORLD_EXPORT_VALIDATION_PASSED: complete World E defaults, four scene projections, relative paths, MOV-only panels, coordinate conversion, frozen snapshot, idempotence, mirrored-root rejection. Fixtures: " + output);
         }
 
         static ConsumerConfig Read(string folder) => JsonUtility.FromJson<ConsumerConfig>(File.ReadAllText(Path.Combine(folder, "world_config.json")));

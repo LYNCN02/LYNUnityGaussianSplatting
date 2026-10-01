@@ -1,5 +1,24 @@
 # Gaussian Splatting playground in Unity
 
+> # 🀄 LYNOOK 分支（中文说明优先）
+>
+> 本仓库是 [aras-p/UnityGaussianSplatting](https://github.com/aras-p/UnityGaussianSplatting) 的 **LYNOOK Fork**。我们保留上游的高斯泼溅渲染实现，并在此基础上构建面向 **LYNOOK 双屏设备**的房间制作与批量录制工具链。
+>
+> **本分支文档以中文为主**，工具界面也使用中文。下方保留的英文段落来自上游原仓库，仅作为背景参考；**使用本项目请优先阅读以下中文文档**：
+>
+> - 🏠 [World Studio 房间制作器使用指南](docs/lynook-world-studio.md)：导入 SPZ/PLY + GLB、对齐、地面/可走区域识别、出生点与活动点、双屏录制与本地交付。
+> - 🎬 [Scene 生成队列与批量自动录制对接](docs/scene-queue-integration.md)：从 Postgres 拉取待转换场景，批量「下载 → 导入 → 录制 → 上传 Azure → 回写数据库」。
+>
+> ### LYNOOK 当前能力一览
+>
+> - **房间制作器**（`Tools → LYNOOK → World Studio`）：一键导入高斯资产与配套 GLB，支持 Marble SPZ 语义变换（米制缩放 / 地面归零 / 绕 X 轴 180°）。
+> - **双屏录制**：产出主屏 `main.mov`（1280×800）与侧屏 `right.mov`（720×1280），H.264、30 fps；MP4 仅为中间产物，转码后自动删除。
+> - **首帧预览**：正面 `preview.png` 与侧面 `preview_right.png`。
+> - **批量录制**：自动下载 / 导入 / 放置出生点与活动点 / 录制 / 上传 Azure Blob / 更新 scenes 表为 `ready`；其中地面对齐与相机取景为人工暂停确认点。
+> - **工程版本**：Unity `6000.3.16f1`，代码按 `LYNOOK.Runtime` 与 `LYNOOK.Editor` 两个程序集组织。
+>
+> ---
+
 SIGGRAPH 2023 had a paper "[**3D Gaussian Splatting for Real-Time Radiance Field Rendering**](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/)" by Kerbl, Kopanas, Leimkühler, Drettakis
 that is really cool! Check out their website, source code repository, data sets and so on. I've decided to try to implement the realtime visualization part (i.e. the one that takes already-produced
 gaussian splat "model" file) in Unity.

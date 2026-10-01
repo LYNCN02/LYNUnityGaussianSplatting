@@ -13,16 +13,29 @@ namespace Lynook.DualScreen.Editor
         const string PendingFolder = "LYNOOK.WorldStudio.PendingFolder";
         const string ActiveFolder = "LYNOOK.WorldStudio.ActiveFolder";
         const string PreviewOnly = "LYNOOK.WorldStudio.PreviewOnly";
+        const string PendingSource = "LYNOOK.WorldStudio.PendingSource";
+        const string PendingBatchSceneId = "LYNOOK.WorldStudio.PendingBatchSceneId";
+        const string ActiveSource = "LYNOOK.WorldStudio.ActiveSource";
+        const string ActiveBatchSceneId = "LYNOOK.WorldStudio.ActiveBatchSceneId";
 
         static LYNOOKWorldStudioRecording() => EditorApplication.playModeStateChanged += StateChanged;
 
-        public static void Start(LYNOOKWorldAuthoring world) => StartInternal(world, false);
-        public static void StartPreview(LYNOOKWorldAuthoring world) => StartInternal(world, true);
+        /// <summary>本地独立录制（非批量），world_config.json 记 source=manual。</summary>
+        public static void Start(LYNOOKWorldAuthoring world) =>
+            StartInternal(world, false, LYNOOKRecordingWorldExporter.SourceManual, 0);
 
-        static void StartInternal(LYNOOKWorldAuthoring world, bool previewOnly)
+        /// <summary>批量队列录制，world_config.json 记 source=batch 与队列 scenes.id。</summary>
+        public static void StartBatch(LYNOOKWorldAuthoring world, int batchSceneId) =>
+            StartInternal(world, false, LYNOOKRecordingWorldExporter.SourceBatch, batchSceneId);
+
+        public static void StartPreview(LYNOOKWorldAuthoring world) =>
+            StartInternal(world, true, LYNOOKRecordingWorldExporter.SourceManual, 0);
+
+        static void StartInternal(LYNOOKWorldAuthoring world, bool previewOnly, string source, int batchSceneId)
         {
             if (EditorApplication.isPlayingOrWillChangePlaymode || EditorApplication.isCompiling)
                 throw new InvalidOperationException("请等待当前运行结束。");
+            bool isBatch = source == LYNOOKRecordingWorldExporter.SourceBatch;
             if (!previewOnly) Debug.Log(LYNOOKWorldPersistence.ValidateForRecording(world));
             else if (world == null || world.cameraRig == null || !world.gaussian.HasValidAsset)
                 throw new InvalidOperationException("请先导入完整房间。");
@@ -40,15 +53,21 @@ namespace Lynook.DualScreen.Editor
             File.Copy(world.collisionSourcePath, folder + "/mesh/collision.glb");
             File.Copy(world.workspacePath + "/world_draft.json", folder + "/world_draft.json");
             File.Copy(world.workspacePath + "/camera_calibration.json", folder + "/camera_calibration.json");
-            File.WriteAllText(folder + "/status.json", "{\"state\":\"recording\"}");
+            // status.json 初始即体现录制来源（batch/manual）与批量队列场景 id。
+            File.WriteAllText(folder + "/status.json",
+                "{\"state\":\"recording\",\"source\":\"" + source + "\"" +
+                (isBatch ? ",\"batchSceneId\":" + batchSceneId : "") + "}");
             SessionState.SetString(PendingScene, world.gameObject.scene.path);
             SessionState.SetString(PendingFolder, folder);
             SessionState.SetBool(PreviewOnly, previewOnly);
+            SessionState.SetString(PendingSource, source);
+            SessionState.SetInt(PendingBatchSceneId, batchSceneId);
             try { EditorApplication.EnterPlaymode(); }
             catch
             {
                 SessionState.EraseString(PendingScene); SessionState.EraseString(PendingFolder);
-                File.WriteAllText(folder + "/status.json", "{\"state\":\"failed\"}");
+                SessionState.EraseString(PendingSource); SessionState.EraseInt(PendingBatchSceneId);
+                File.WriteAllText(folder + "/status.json", "{\"state\":\"failed\",\"source\":\"" + source + "\"}");
                 throw;
             }
         }
@@ -59,39 +78,58 @@ namespace Lynook.DualScreen.Editor
             {
                 string scene = SessionState.GetString(PendingScene, "");
                 string folder = SessionState.GetString(PendingFolder, "");
+                string pendingSource = SessionState.GetString(PendingSource, LYNOOKRecordingWorldExporter.SourceManual);
+                int pendingBatchSceneId = SessionState.GetInt(PendingBatchSceneId, 0);
                 SessionState.EraseString(PendingScene); SessionState.EraseString(PendingFolder);
+                SessionState.EraseString(PendingSource); SessionState.EraseInt(PendingBatchSceneId);
                 if (string.IsNullOrEmpty(scene)) return;
                 SessionState.SetString(ActiveFolder, folder);
+                // 来源在整个 PlayMode 期间保留，回 EditMode 写最终 status.json 时使用。
+                SessionState.SetString(ActiveSource, pendingSource);
+                SessionState.SetInt(ActiveBatchSceneId, pendingBatchSceneId);
                 try
                 {
                     var world = LYNOOKWorldStudioService.Current;
                     if (world == null || world.gameObject.scene.path != scene) throw new InvalidOperationException("制作场景已切换，录制取消。");
                     foreach (var renderer in world.collisionObject.GetComponentsInChildren<Renderer>(true)) renderer.enabled = false;
                     world.cameraRig.ApplyConfiguration();
+                    // 正面第一帧与侧面第一帧各出一张预览。
                     WritePreview(world.cameraRig.MainCaptureCamera, folder + "/preview.png");
+                    WritePreview(world.cameraRig.SideCaptureCamera, folder + "/preview_right.png");
                     var session = world.cameraRig.GetComponent<LYNOOKDualRecordingSession>();
                     session.SetReferences(world.cameraRig, null);
                     session.SetOutputNames("main", "right", "preview.mov");
-                    session.BeginRecording(folder, !SessionState.GetBool(PreviewOnly, false));
+                    session.BeginRecording(folder, !SessionState.GetBool(PreviewOnly, false),
+                        pendingSource, pendingBatchSceneId);
                 }
                 catch (Exception exception) { Debug.LogException(exception); EditorApplication.ExitPlaymode(); }
             }
             else if (state == PlayModeStateChange.EnteredEditMode)
             {
                 string folder = SessionState.GetString(ActiveFolder, "");
+                string activeSource = SessionState.GetString(ActiveSource, LYNOOKRecordingWorldExporter.SourceManual);
+                int activeBatchSceneId = SessionState.GetInt(ActiveBatchSceneId, 0);
                 SessionState.EraseString(ActiveFolder);
+                SessionState.EraseString(ActiveSource); SessionState.EraseInt(ActiveBatchSceneId);
                 if (string.IsNullOrEmpty(folder)) return;
                 bool previewOnly = SessionState.GetBool(PreviewOnly, false);
                 SessionState.EraseBool(PreviewOnly);
+                bool isBatch = activeSource == LYNOOKRecordingWorldExporter.SourceBatch;
+                string sourceTag = "\"source\":\"" + activeSource + "\"" +
+                    (isBatch && activeBatchSceneId > 0 ? ",\"batchSceneId\":" + activeBatchSceneId : "");
                 bool filesPresent = true;
-                string[] required = previewOnly ? new[] { "main.mp4", "right.mp4", "preview.png" }
-                    : new[] { "main.mp4", "right.mp4", "world_config.json", "mesh/collision.glb", "preview.png" };
+                // 2 秒取景预览保留 MP4 + 正面首帧；交付录制校验 MOV + world_config +
+                // 碰撞 GLB + 正/侧首帧预览（无 mp4）。
+                string[] required = previewOnly
+                    ? new[] { "main.mp4", "right.mp4", "preview.png" }
+                    : new[] { "main.mov", "right.mov", "world_config.json",
+                        "mesh/collision.glb", "preview.png", "preview_right.png" };
                 foreach (string file in required)
                     filesPresent &= File.Exists(folder + "/" + file) && new FileInfo(folder + "/" + file).Length > 0;
                 File.WriteAllText(folder + "/status.json", filesPresent
-                    ? (previewOnly ? "{\"state\":\"preview_only\",\"filesPresent\":true,\"deliverable\":false}"
-                        : "{\"state\":\"needs_review\",\"filesPresent\":true,\"deviceValidated\":false}")
-                    : "{\"state\":\"failed\",\"filesPresent\":false}");
+                    ? (previewOnly ? "{\"state\":\"preview_only\",\"filesPresent\":true,\"deliverable\":false," + sourceTag + "}"
+                        : "{\"state\":\"needs_review\",\"filesPresent\":true,\"deviceValidated\":false," + sourceTag + "}")
+                    : "{\"state\":\"failed\",\"filesPresent\":false," + sourceTag + "}");
                 if (filesPresent) Debug.Log((previewOnly ? "LYNOOK World Studio 2 秒取景预览已生成（非交付包）：" : "LYNOOK World Studio 本地房间包已生成，待人工检查视频和设备效果：") + folder);
                 else Debug.LogError("LYNOOK World Studio 录制未完整完成，可重新录制。输出目录：" + folder);
             }
