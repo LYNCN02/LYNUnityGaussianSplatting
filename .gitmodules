@@ -1,0 +1,3 @@
+[submodule "shared-docs"]
+	path = shared-docs
+	url = git@github.com:LYNCN02/lynookdocs.git

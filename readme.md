@@ -169,3 +169,8 @@ However, keep in mind that the [license of the original paper implementation](ht
 says that the official _training_ software for the Gaussian Splats is for educational / academic / non-commercial
 purpose; commercial usage requires getting license from INRIA. That is: even if this viewer / integration
 into Unity is just "MIT license", you need to separately consider *how* did you get your Gaussian Splat PLY files.
+
+
+## LYNOOK 共享文档
+
+跨项目需求、架构、协议与联调流程见 [共享文档导航](shared-docs/README.md)，接入和更新方式见 [工程内入口](docs/shared-docs.md)。首次使用运行 `git submodule update --init --recursive`。本工程具体实现与验证记录仍在 `docs/`。
